@@ -1,0 +1,155 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+#
+# Local development toolchain for the Kamishibai triage board.
+# Everything needed to build and run the app on a Mac is declared here.
+#
+#   mise install     # install the pinned toolchains
+#   mise run dev     # run backend + frontend together
+#   mise tasks       # list every available task
+
+[tools]
+go = "1.27"
+node = "26"
+
+[env]
+# Period boundaries (daily/weekly/monthly/quarterly/annual rollovers) are
+# evaluated in this timezone. The whole team shares it.
+KAMISHIBAI_TIMEZONE = "America/New_York"
+
+# Local backend address. The Vite dev server proxies API calls here.
+KAMISHIBAI_HTTP_ADDR = "127.0.0.1:8090"
+
+# ---------------------------------------------------------------------------
+# Composite tasks
+# ---------------------------------------------------------------------------
+
+[tasks.dev]
+description = "Run the backend and the frontend dev server together"
+depends = ["backend:serve", "frontend:dev"]
+
+[tasks.setup]
+description = "Install all dependencies (Go modules + npm packages)"
+depends = ["backend:deps", "frontend:deps"]
+
+[tasks.test]
+description = "Run the full test suite (backend + frontend)"
+depends = ["backend:test", "frontend:test"]
+
+[tasks.lint]
+description = "Vet/lint both workspaces"
+depends = ["backend:vet", "frontend:lint"]
+
+[tasks.check]
+description = "Everything CI runs: lint + tests + builds"
+depends = ["lint", "test", "build"]
+
+[tasks.build]
+description = "Build production artifacts for both workspaces"
+depends = ["frontend:build", "backend:build"]
+
+# ---------------------------------------------------------------------------
+# Backend (PocketBase / Go)
+# ---------------------------------------------------------------------------
+
+[tasks."backend:deps"]
+description = "Download Go module dependencies"
+dir = "backend"
+run = "go mod download"
+
+[tasks."backend:serve"]
+description = "Start the PocketBase backend (applies migrations on boot)"
+dir = "backend"
+run = "go run . serve --http=$KAMISHIBAI_HTTP_ADDR"
+
+[tasks."backend:build"]
+description = "Compile the backend into a single binary at backend/dist/kamishibai"
+dir = "backend"
+run = "go build -trimpath -o dist/kamishibai ."
+
+[tasks."backend:test"]
+description = "Run Go unit tests"
+dir = "backend"
+run = "go test ./..."
+
+[tasks."backend:test:cover"]
+description = "Run Go unit tests with a coverage summary"
+dir = "backend"
+run = ["go test -coverprofile=coverage.out ./...", "go tool cover -func=coverage.out | tail -1"]
+
+[tasks."backend:vet"]
+description = "Run go vet"
+dir = "backend"
+run = "go vet ./..."
+
+[tasks."backend:fmt"]
+description = "Format Go sources"
+dir = "backend"
+run = "go fmt ./..."
+
+# --- migrations ------------------------------------------------------------
+
+[tasks."migrate:up"]
+description = "Apply all pending database migrations"
+dir = "backend"
+run = "go run . migrate up"
+
+[tasks."migrate:down"]
+description = "Revert the last applied migration (override count with: mise run migrate:down -- 2)"
+dir = "backend"
+run = "go run . migrate down"
+
+[tasks."migrate:create"]
+description = "Create a blank migration file (usage: mise run migrate:create -- add_widget_field)"
+dir = "backend"
+run = "go run . migrate create"
+
+[tasks."migrate:status"]
+description = "Show which migrations have been applied"
+dir = "backend"
+run = "go run . migrate history-sync"
+
+# --- seeding ---------------------------------------------------------------
+
+[tasks.seed]
+description = "Seed repeatable demo data (idempotent; safe to re-run)"
+dir = "backend"
+run = "go run . seed"
+
+[tasks."seed:reset"]
+description = "Wipe seeded data and re-seed from scratch"
+dir = "backend"
+run = "go run . seed --reset"
+
+[tasks."db:reset"]
+description = "Delete the local database entirely, then migrate and seed a fresh one"
+dir = "backend"
+run = ["rm -rf pb_data", "go run . migrate up", "go run . seed"]
+
+# ---------------------------------------------------------------------------
+# Frontend (React / Vite)
+# ---------------------------------------------------------------------------
+
+[tasks."frontend:deps"]
+description = "Install npm packages"
+dir = "frontend"
+run = "npm install"
+
+[tasks."frontend:dev"]
+description = "Start the Vite dev server"
+dir = "frontend"
+run = "npm run dev"
+
+[tasks."frontend:build"]
+description = "Build the production frontend bundle into backend/pb_public"
+dir = "frontend"
+run = "npm run build"
+
+[tasks."frontend:test"]
+description = "Run frontend unit tests once (no watch mode)"
+dir = "frontend"
+run = "npm run test"
+
+[tasks."frontend:lint"]
+description = "Typecheck and lint the frontend"
+dir = "frontend"
+run = "npm run lint"

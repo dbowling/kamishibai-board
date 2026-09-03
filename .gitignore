@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# Backend
+# ---------------------------------------------------------------------------
+
+# PocketBase runtime data (SQLite database, storage, logs).
+# Schema lives in backend/migrations, so this is always reproducible.
+backend/pb_data/
+
+# Static frontend bundle, produced by `mise run frontend:build`.
+backend/pb_public/
+
+# Build output
+backend/dist/
+coverage.out
+*.test
+
+# ---------------------------------------------------------------------------
+# Frontend
+# ---------------------------------------------------------------------------
+node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.vite/
+*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# Local environment / editor / OS
+# ---------------------------------------------------------------------------
+.env
+.env.local
+*.local
+
+.DS_Store
+.idea/
+*.swp
