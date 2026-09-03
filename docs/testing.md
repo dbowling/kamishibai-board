@@ -346,6 +346,19 @@ long` saves the next person a calendar lookup.
 
 ## CI
 
-`mise run check` is lint, test and build for both workspaces. The Docker build also
-runs `go vet ./... && go test ./...` inside the image build, so a container that
-cannot pass its own tests never gets tagged.
+`mise run check` is lint, test and build for both workspaces, and is the quickest way
+to find out locally whether CI will be happy.
+
+GitHub Actions runs the same mise tasks on every pull request and every pushed
+commit, with `-race` enabled for the Go tests. The Docker build additionally runs
+`go vet ./... && go test ./...` inside the image build, so a container that cannot
+pass its own tests never gets tagged.
+
+The workflow can be executed on your own machine:
+
+```bash
+mise run ci:local                     # the whole workflow, as a pull request
+mise run ci:local -- --job backend    # just one job
+```
+
+See [CI](ci.md).

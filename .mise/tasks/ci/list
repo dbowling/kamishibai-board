@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#MISE description="List the jobs in the CI workflow, as act sees them"
+#
+# Useful for getting the job ids to pass to `mise run ci:local -- --job <id>`,
+# and for a quick sanity check that act can parse the workflow at all.
+
+set -euo pipefail
+
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  echo "Skipping: already running inside GitHub Actions"
+  exit 0
+fi
+
+if ! command -v act >/dev/null 2>&1; then
+  echo "error: act is not installed. brew install act" >&2
+  exit 1
+fi
+
+exec act --list "$@"

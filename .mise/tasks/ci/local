@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+#MISE description="Run the CI workflow locally with act (as a pull request)"
+#MISE alias="ci"
+#
+# Executes .github/workflows/ci.yml on this machine using act, so a workflow
+# change can be tested without pushing a commit and waiting for a runner.
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Run .github/workflows/ci.yml locally with act.
+
+Usage:
+  mise run ci:local                     the whole workflow, as a pull request
+  mise run ci:local -- --job backend    one job (see: mise run ci:list)
+  mise run ci:local -- --event push     as a push event instead
+  mise run ci:local -- --base develop   compare against a different base branch
+  mise run ci:local -- --dryrun         show what would run, without running it
+
+Unrecognised flags are passed straight through to act, so
+`mise run ci:local -- --verbose` works too.
+
+The container job is skipped locally because .actrc does not expose the host
+Docker daemon to workflow containers. See docs/ci.md.
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Never run act inside CI.
+# ---------------------------------------------------------------------------
+# If this task is reached from within a workflow, act would try to start Docker
+# containers inside the runner to re-execute the same workflow. Exit cleanly so
+# that a composite task which happens to include this one still succeeds.
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  echo "Skipping: already running inside GitHub Actions"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Preconditions
+# ---------------------------------------------------------------------------
+missing=0
+for tool in act jq docker git; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "error: '$tool' is not installed or not on PATH" >&2
+    missing=1
+  fi
+done
+if [ "$missing" -ne 0 ]; then
+  cat >&2 <<'EOF'
+
+Install what is missing:
+  brew install act jq
+  Docker Desktop, OrbStack, or another Docker-compatible runtime
+
+See docs/ci.md.
+EOF
+  exit 1
+fi
+
+if ! docker info >/dev/null 2>&1; then
+  echo "error: cannot reach a Docker daemon. Is Docker running?" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Arguments
+# ---------------------------------------------------------------------------
+event="pull_request"
+base_ref="main"
+job=""
+act_args=()
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --event)
+      event="${2:?--event needs a value: pull_request or push}"
+      shift 2
+      ;;
+    --base)
+      base_ref="${2:?--base needs a git ref}"
+      shift 2
+      ;;
+    --job|-j)
+      job="${2:?--job needs a job id, e.g. backend}"
+      shift 2
+      ;;
+    --list|-l|--dryrun|-n)
+      act_args+=("$1")
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      # Unrecognised: hand it to act untouched.
+      act_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+case "$event" in
+  pull_request|push) ;;
+  *)
+    echo "error: --event must be 'pull_request' or 'push', got '$event'" >&2
+    exit 1
+    ;;
+esac
+
+if [ -n "$job" ]; then
+  act_args+=(--job "$job")
+fi
+
+# ---------------------------------------------------------------------------
+# Build the event payload
+# ---------------------------------------------------------------------------
+# act can infer a push event from the repository, but a pull_request event has no
+# equivalent on disk: there is no PR locally. So one is synthesised from the
+# current branch, which is what makes `if: github.event_name == 'pull_request'`
+# and the pull_request contexts resolve correctly.
+head_ref="$(git rev-parse --abbrev-ref HEAD)"
+head_sha="$(git rev-parse HEAD)"
+
+# Written to a real file rather than passed via process substitution, because act
+# opens the path more than once and a /dev/fd entry is only good for one read.
+payload="$(mktemp -t kamishibai-act-event.XXXXXX)"
+trap 'rm -f "$payload"' EXIT
+
+if [ "$event" = "pull_request" ]; then
+  if ! git rev-parse --verify --quiet "$base_ref" >/dev/null; then
+    echo "error: base ref '$base_ref' does not exist locally." >&2
+    echo "       Pass a different one with: mise run ci:local -- --base <ref>" >&2
+    exit 1
+  fi
+
+  # merge-base rather than the base tip, so the payload describes the same
+  # comparison GitHub would make. When HEAD is the base branch this resolves to
+  # HEAD, which is harmless for a local run.
+  base_sha="$(git merge-base "$base_ref" HEAD 2>/dev/null || git rev-parse "$base_ref")"
+
+  if [ "$base_sha" = "$head_sha" ]; then
+    echo "note: HEAD and '$base_ref' are the same commit, so this simulates an"
+    echo "      empty pull request. Fine for exercising the workflow itself."
+  fi
+
+  jq -n \
+    --arg head_ref "$head_ref" \
+    --arg head_sha "$head_sha" \
+    --arg base_ref "$base_ref" \
+    --arg base_sha "$base_sha" \
+    '{
+      "action": "synchronize",
+      "number": 1,
+      "pull_request": {
+        "number": 1,
+        "state": "open",
+        "draft": false,
+        "title": "Local CI run",
+        "body": "Synthesised by mise run ci:local.",
+        "head": {"ref": $head_ref, "sha": $head_sha},
+        "base": {"ref": $base_ref, "sha": $base_sha}
+      }
+    }' >"$payload"
+else
+  jq -n \
+    --arg ref "refs/heads/$head_ref" \
+    --arg sha "$head_sha" \
+    '{
+      "ref": $ref,
+      "before": "0000000000000000000000000000000000000000",
+      "after": $sha,
+      "head_commit": {"id": $sha, "message": "Local CI run"}
+    }' >"$payload"
+fi
+
+# ---------------------------------------------------------------------------
+# Run
+# ---------------------------------------------------------------------------
+echo "act: event=$event ref=$head_ref${job:+ job=$job}"
+echo
+
+# Flags live in .actrc so they apply however act is invoked.
+exec act "$event" --eventpath "$payload" "${act_args[@]}"

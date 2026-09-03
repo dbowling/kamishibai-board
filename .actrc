@@ -1,0 +1,20 @@
+# Defaults for running the GitHub Actions workflow locally with act.
+#
+#   mise run ci:local        run the workflow as a pull request
+#   mise run ci:local:push   run it as a push
+#   mise run ci:list         list the jobs
+#
+# See docs/ci.md.
+
+# Map ubuntu-latest to an image that actually carries the tooling actions expect.
+# Without this, act prompts interactively on first run.
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+
+# Do not bind the host Docker daemon into workflow containers. A workflow with
+# access to the host socket can do anything to the host, and running third-party
+# actions with that access is not a good default. The container build job is
+# skipped under act for this reason; see docs/ci.md to opt in.
+--container-daemon-socket -
+
+# Remove job containers when a run finishes, rather than leaving them behind.
+--rm

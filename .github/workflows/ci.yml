@@ -1,0 +1,175 @@
+name: CI
+
+# Runs on every pull request and on every pushed commit.
+#
+# Note that a push to a branch which already has an open pull request produces
+# two runs, one per event. That is the cost of literally testing every pushed
+# commit. If you would rather not pay it, narrow the push trigger to:
+#
+#   push:
+#     branches: [main]
+#
+# and same-branch pushes will be covered by their pull request instead.
+on:
+  pull_request:
+  push:
+    branches: ['**']
+    tags-ignore: ['**']
+  workflow_dispatch:
+
+# Supersede in-flight runs for the same ref. The event name is part of the group
+# so a push run and a pull request run never cancel each other.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Period boundaries are evaluated in this timezone. Pinned here so the
+  # date-sensitive tests behave identically on a runner, under act, and on a
+  # developer's machine, whatever the host clock is set to.
+  KAMISHIBAI_TIMEZONE: America/New_York
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      # mise installs the Go and Node versions pinned in .mise.toml, so CI and
+      # local development cannot drift onto different toolchains.
+      - name: Set up mise
+        uses: jdx/mise-action@v4.3.0
+        with:
+          # act's cache support is partial; skip it there to avoid noisy warnings.
+          cache: ${{ !env.ACT }}
+
+      - name: Cache Go modules and build output
+        if: ${{ !env.ACT }}
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('backend/go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+
+      - name: Vet
+        run: mise run backend:vet
+
+      # -race is worth the extra time here: the occurrence service resolves
+      # concurrent writers with a retry loop, and there is a test that fires
+      # eight simultaneous completions at one card.
+      - name: Test
+        run: mise run backend:test:race
+
+      - name: Build
+        run: mise run backend:build
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Set up mise
+        uses: jdx/mise-action@v4.3.0
+        with:
+          cache: ${{ !env.ACT }}
+
+      - name: Cache npm downloads
+        if: ${{ !env.ACT }}
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      # `npm ci` rather than `npm install`: installs exactly what the lockfile
+      # pins and fails if the lockfile is out of step with package.json.
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Typecheck
+        run: mise run frontend:lint
+
+      - name: Test
+        run: mise run frontend:test
+
+      - name: Build
+        run: mise run frontend:build
+
+  manifests:
+    name: Manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Set up mise
+        uses: jdx/mise-action@v4.3.0
+        with:
+          cache: ${{ !env.ACT }}
+
+      # The task pulls kubectl through `mise exec`, so it needs nothing
+      # preinstalled on the runner.
+      - name: Render Kubernetes manifests
+        run: mise run k8s:render > /dev/null
+
+  container:
+    name: Container
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      # The Dockerfile runs `go vet` and `go test` inside the build, so this
+      # validates the artifact that would actually ship, not just the source.
+      # Deliberately skipped under act: it needs the host Docker daemon, which
+      # .actrc does not expose to workflow containers.
+      - name: Build image
+        if: ${{ !env.ACT }}
+        run: mise run docker:build
+
+      - name: Explain the skip
+        if: ${{ env.ACT }}
+        run: |
+          echo "Skipped: the container build needs the host Docker daemon."
+          echo "To include it locally, see docs/ci.md."
+
+  # A single job to require in branch protection, so adding a job later does not
+  # mean reconfiguring the rule.
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    needs: [backend, frontend, manifests, container]
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          echo "backend=${{ needs.backend.result }}"
+          echo "frontend=${{ needs.frontend.result }}"
+          echo "manifests=${{ needs.manifests.result }}"
+          echo "container=${{ needs.container.result }}"
+
+          # Treat anything that is not a success as a failure, so a cancelled or
+          # skipped dependency cannot quietly report the whole run as green.
+          for result in \
+            "${{ needs.backend.result }}" \
+            "${{ needs.frontend.result }}" \
+            "${{ needs.manifests.result }}" \
+            "${{ needs.container.result }}"
+          do
+            if [ "$result" != "success" ]; then
+              echo "::error::A required job did not succeed."
+              exit 1
+            fi
+          done
+
+          echo "All jobs succeeded."

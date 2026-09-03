@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#MISE description="Run the CI workflow locally with act, as a push event"
+#
+# Thin wrapper over ci:local. Kept as its own task because "does this pass on a
+# push?" and "does this pass on a pull request?" are different questions once a
+# workflow starts branching on github.event_name.
+#
+#   mise run ci:push
+#   mise run ci:push -- --job frontend
+
+set -euo pipefail
+
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  echo "Skipping: already running inside GitHub Actions"
+  exit 0
+fi
+
+exec mise run ci:local -- --event push "$@"

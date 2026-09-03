@@ -31,6 +31,7 @@ Full documentation is in [`docs/`](docs/README.md).
 | [Permissions](docs/permissions.md) | Who can do what, and the three layers enforcing it |
 | [Scheduling and time](docs/scheduling.md) | Periods, flipping, rollups, timezones, DST |
 | [Realtime](docs/realtime.md) | How a teammate's click reaches your screen, from first principles |
+| [CI](docs/ci.md) | The GitHub Actions workflow, and running it locally with act |
 | [Production](docs/production.md) | Deploying, operating, backups, capacity |
 
 ## How it works

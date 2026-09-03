@@ -71,6 +71,11 @@ description = "Run Go unit tests"
 dir = "backend"
 run = "go test ./..."
 
+[tasks."backend:test:race"]
+description = "Run Go unit tests with the race detector (what CI runs)"
+dir = "backend"
+run = "go test -race ./..."
+
 [tasks."backend:test:cover"]
 description = "Run Go unit tests with a coverage summary"
 dir = "backend"
@@ -176,10 +181,24 @@ docker run --rm -p 8090:8090 \
   kamishibai:local
 """
 
+# kubectl is pulled on demand rather than declared in [tools], so that a
+# frontend-only contributor running `mise install` does not have to download it,
+# and so CI needs nothing preinstalled on the runner.
 [tasks."k8s:render"]
 description = "Render the Kubernetes manifests without applying them"
-run = "kubectl kustomize deploy/k8s"
+run = "mise exec kubectl@1.36 -- kubectl kustomize deploy/k8s"
 
 [tasks."k8s:diff"]
 description = "Show what applying the manifests would change in the current context"
-run = "kubectl diff -k deploy/k8s"
+run = "mise exec kubectl@1.36 -- kubectl diff -k deploy/k8s"
+
+# ---------------------------------------------------------------------------
+# Continuous integration
+# ---------------------------------------------------------------------------
+#
+# The ci:* tasks live in .mise/tasks/ci/ as shell scripts, because they need a
+# real bash shebang for argument handling. Run `mise tasks` to see them.
+#
+#   mise run ci:local    execute .github/workflows/ci.yml via act, as a PR
+#   mise run ci:push     the same, as a push event
+#   mise run ci:list     list the workflow's jobs

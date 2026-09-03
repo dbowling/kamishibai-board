@@ -100,9 +100,11 @@ works. From there, `internal/occurrence` shows how that logic becomes rows, and
 ```bash
 mise run test              # backend + frontend
 mise run backend:test      # Go only
+mise run backend:test:race # with the race detector, as CI runs it
 mise run frontend:test     # Vitest only, single run
 mise run lint              # go vet + tsc --noEmit
 mise run check             # lint + test + build, i.e. what CI does
+mise run ci:local          # run the actual GitHub Actions workflow via act
 mise run backend:fmt       # gofmt
 mise run seed              # reload demo data (idempotent, safe to repeat)
 mise run seed:reset        # remove seeded records first, then reseed

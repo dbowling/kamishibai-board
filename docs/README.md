@@ -18,6 +18,7 @@ the rest can be read as you need them.
 | [Permissions](permissions.md) | Who can do what, and the three layers that enforce it |
 | [Scheduling and time](scheduling.md) | Periods, how cards flip, the rollup job, timezones and daylight saving |
 | [Realtime](realtime.md) | How a teammate's click reaches your screen. Written for readers with no realtime experience |
+| [CI](ci.md) | The GitHub Actions workflow, and running it locally with act |
 | [Production](production.md) | Deploying, operating, backing up, and the constraints that come with SQLite |
 
 ## Quick reference
