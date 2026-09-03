@@ -8,6 +8,7 @@
 //	go run . migrate up   apply migrations without serving
 //	go run . seed         load repeatable demo data
 //	go run . rollup       recompute reporting snapshots on demand
+//	go run . backup       archive pb_data while running
 package main
 
 import (
@@ -48,6 +49,7 @@ func main() {
 	// Operator commands.
 	pb.RootCmd.AddCommand(cli.NewSeedCommand(pb, cfg))
 	pb.RootCmd.AddCommand(cli.NewRollupCommand(pb, cfg))
+	pb.RootCmd.AddCommand(cli.NewBackupCommand(pb))
 
 	if err := pb.Start(); err != nil {
 		log.Fatal(err)

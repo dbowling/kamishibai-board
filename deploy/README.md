@@ -52,16 +52,18 @@ not to raise the replica count.
 
 ## Backups
 
-The database is a single file on the PVC, so a backup is a copy:
+The database is a single file on the PVC, so a backup is a copy. The binary ships a
+`backup` command that archives it consistently while running:
 
 ```
 kubectl -n kamishibai exec deploy/kamishibai -- \
   /app/kamishibai backup --dir=/app/pb_data
 ```
 
-PocketBase writes the archive inside `pb_data/backups`, which is on the volume, so
-copy it somewhere else to be useful. Prefer volume snapshots if your storage class
-supports them.
+The archive lands in `pb_data/backups`, which is on the same volume, so copy it off to
+be useful. Prefer volume snapshots if your storage class supports them.
+
+See [docs/production.md](../docs/production.md#backups) for the full picture.
 
 Worth knowing what is and is not recoverable: the schema lives in the migrations
 compiled into the binary, so a lost database can be rebuilt structurally from a

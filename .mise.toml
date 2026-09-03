@@ -125,6 +125,11 @@ description = "Delete the local database entirely, then migrate and seed a fresh
 dir = "backend"
 run = ["rm -rf pb_data", "go run . migrate up", "go run . seed"]
 
+[tasks."db:backup"]
+description = "Archive pb_data into pb_data/backups"
+dir = "backend"
+run = "go run . backup"
+
 # ---------------------------------------------------------------------------
 # Frontend (React / Vite)
 # ---------------------------------------------------------------------------

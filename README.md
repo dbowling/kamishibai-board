@@ -18,6 +18,21 @@ mise run dev       # backend on :8090, frontend on :5173
 Then sign in at http://localhost:5173 as `admin@example.test` or
 `dana@example.test` with the password `kamishibai-dev-1234`.
 
+## Documentation
+
+Full documentation is in [`docs/`](docs/README.md).
+
+| Doc | Covers |
+| --- | --- |
+| [Overview](docs/overview.md) | Purpose, features, and the design decision everything follows from |
+| [Development](docs/development.md) | Running locally, code layout, the CLI, troubleshooting |
+| [Schema and migrations](docs/schema-and-migrations.md) | Changing the database safely |
+| [Testing](docs/testing.md) | Test suites, fixtures, helpers, testing time |
+| [Permissions](docs/permissions.md) | Who can do what, and the three layers enforcing it |
+| [Scheduling and time](docs/scheduling.md) | Periods, flipping, rollups, timezones, DST |
+| [Realtime](docs/realtime.md) | How a teammate's click reaches your screen, from first principles |
+| [Production](docs/production.md) | Deploying, operating, backups, capacity |
+
 ## How it works
 
 ### Cards flip without anything writing to the database

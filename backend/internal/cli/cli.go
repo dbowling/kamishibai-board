@@ -125,3 +125,61 @@ func NewRollupCommand(app core.App, cfg config.Config) *cobra.Command {
 
 	return cmd
 }
+
+// NewBackupCommand returns the `backup` command.
+//
+// PocketBase can create backups through its dashboard and its HTTP API, but both
+// need a superuser session. In a container there is no shell and no browser, so
+// the practical way to take a backup is `kubectl exec ... backup`, and that needs
+// a command to exist.
+//
+// The archive is written to the backups filesystem, which by default is
+// pb_data/backups. That is on the same volume as the database, so it protects
+// against an application-level mistake but not against losing the volume. Copy it
+// somewhere else, or configure S3 backup storage, for it to count as a real backup.
+func NewBackupCommand(app core.App) *cobra.Command {
+	var name string
+
+	cmd := &cobra.Command{
+		Use:   "backup",
+		Short: "Create a backup of the database and uploaded files",
+		Long: "Create a consistent archive of pb_data while the application is " +
+			"running.\n\n" +
+			"The archive is written to the backups filesystem (pb_data/backups by " +
+			"default), which lives on the same volume as the database. Copy it off " +
+			"that volume, or configure S3 storage, for it to be a real backup.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// A generated name is timestamped by PocketBase, which keeps archives
+			// sortable and avoids overwriting yesterday's.
+			if err := app.CreateBackup(cmd.Context(), name); err != nil {
+				return fmt.Errorf("create backup: %w", err)
+			}
+
+			fs, err := app.NewBackupsFilesystem()
+			if err != nil {
+				// The backup itself succeeded, so this is a reporting failure only.
+				fmt.Fprintln(cmd.OutOrStdout(), "Backup created.")
+				return nil
+			}
+			defer fs.Close()
+
+			files, err := fs.List("")
+			if err != nil {
+				fmt.Fprintln(cmd.OutOrStdout(), "Backup created.")
+				return nil
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "Backup created. %d archive(s) available:\n", len(files))
+			for _, f := range files {
+				fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", f.Key)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "",
+		"archive filename; generated with a timestamp when omitted")
+
+	return cmd
+}
