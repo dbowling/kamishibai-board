@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kamishibai-config
+  labels:
+    app.kubernetes.io/name: kamishibai
+data:
+  # The single timezone in which every period boundary is evaluated. A daily card
+  # flips at midnight here, and a weekly card flips on Monday here, for everyone
+  # looking at the board regardless of where they are.
+  #
+  # Changing this after data exists does not rewrite history: past occurrences
+  # keep the period keys they were filed under, and rollups keep the boundaries
+  # they were computed with.
+  timezone: America/New_York
+
+  # When the reporting rollup job runs, interpreted in the timezone above. Every
+  # cadence rolls over at local midnight, so one run shortly after midnight
+  # catches daily, weekly, monthly, quarterly and annual closures alike.
+  rollupCron: "10 0 * * *"
+
+  # How many closed periods the job re-checks on each run. This is what lets it
+  # recover from downtime: if the pod was away for a week, the next run fills the
+  # gap rather than leaving permanent holes in the history.
+  rollupLookback: "14"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kamishibai
+  labels:
+    app.kubernetes.io/name: kamishibai
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: kamishibai
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

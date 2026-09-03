@@ -1,0 +1,46 @@
+# Exposes the board outside the cluster.
+#
+# Note on access control: the application authenticates every request itself. The
+# API rules scope reads and writes to the caller's teams, occurrences are closed
+# to direct client writes, and there is no public signup. So this Ingress does not
+# add an auth layer, and does not need to.
+#
+# What it does need is TLS. Auth tokens are sent in an Authorization header on
+# every request, including the realtime stream, so serving this over plain HTTP
+# would put them on the wire in clear text. The annotations below assume
+# cert-manager; adjust for your ingress controller.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kamishibai
+  labels:
+    app.kubernetes.io/name: kamishibai
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+    # The board holds a realtime subscription open so a teammate completing a
+    # card updates everyone else's view. Server-sent events need buffering off
+    # and a long read timeout, or the connection is cut every minute.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+
+    # Card instructions can hold a fair amount of rich text.
+    nginx.ingress.kubernetes.io/proxy-body-size: "8m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - kamishibai.example.com
+      secretName: kamishibai-tls
+  rules:
+    - host: kamishibai.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kamishibai
+                port:
+                  name: http

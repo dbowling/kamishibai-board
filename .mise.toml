@@ -150,6 +150,31 @@ dir = "frontend"
 run = "npm run test"
 
 [tasks."frontend:lint"]
-description = "Typecheck and lint the frontend"
+description = "Typecheck the frontend"
 dir = "frontend"
 run = "npm run lint"
+
+# ---------------------------------------------------------------------------
+# Container and deployment
+# ---------------------------------------------------------------------------
+
+[tasks."docker:build"]
+description = "Build the production container image"
+run = "docker build -t kamishibai:local ."
+
+[tasks."docker:run"]
+description = "Run the production image locally on port 8090 with a throwaway volume"
+run = """
+docker run --rm -p 8090:8090 \
+  -v kamishibai-local-data:/app/pb_data \
+  -e KAMISHIBAI_TIMEZONE=America/New_York \
+  kamishibai:local
+"""
+
+[tasks."k8s:render"]
+description = "Render the Kubernetes manifests without applying them"
+run = "kubectl kustomize deploy/k8s"
+
+[tasks."k8s:diff"]
+description = "Show what applying the manifests would change in the current context"
+run = "kubectl diff -k deploy/k8s"

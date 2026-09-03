@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+
+    // vite/client supplies import.meta.env and the CSS side-effect import
+    // declarations; node is needed for process.env in vite.config.ts.
+    "types": ["vite/client", "node", "vitest/globals", "@testing-library/jest-dom"]
+  },
+  "include": ["src", "vite.config.ts"]
+}

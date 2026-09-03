@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kamishibai-data
+  labels:
+    app.kubernetes.io/name: kamishibai
+spec:
+  # ReadWriteOnce matches the single-writer deployment. Do not widen this to
+  # ReadWriteMany hoping to scale out: SQLite over a shared network filesystem
+  # is a well-known way to corrupt a database, because its locking depends on
+  # POSIX semantics that most shared volumes do not honour.
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # The occurrences table only grows when somebody records work, and closed
+      # periods are collapsed into one rollup row each, so growth is measured in
+      # megabytes per year for a team of this size. 2Gi is generous.
+      storage: 2Gi
+  # storageClassName: intentionally unset, so the cluster default applies.
+  # Set it explicitly if you need a particular class, for example one that is
+  # backed up or that offers snapshots.

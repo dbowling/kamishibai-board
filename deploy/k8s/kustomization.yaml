@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Deploy with:
+#   kubectl apply -k deploy/k8s
+#
+# Everything lands in one namespace. Override the image tag per environment rather
+# than editing deployment.yaml.
+namespace: kamishibai
+
+resources:
+  - namespace.yaml
+  - config.yaml
+  - storage.yaml
+  - deployment.yaml
+  - ingress.yaml
+
+# includeSelectors is false on purpose. Baking extra labels into the Deployment's
+# selector would make it immutable in an awkward way: selectors cannot be changed
+# after creation, so adding a label here later would require deleting the
+# Deployment. The selectors are written explicitly in the manifests instead.
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/name: kamishibai
+      app.kubernetes.io/part-of: kamishibai
+      app.kubernetes.io/managed-by: kustomize
+
+images:
+  - name: ghcr.io/dbowling/kamishibai
+    newTag: latest

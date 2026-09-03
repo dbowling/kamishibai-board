@@ -1,0 +1,29 @@
+# Keep the build context small and avoid baking local state into the image.
+
+.git/
+.gitignore
+
+# Local runtime data. The image must never carry somebody's development database.
+backend/pb_data/
+# Rebuilt inside the image by the frontend stage.
+backend/pb_public/
+backend/dist/
+coverage.out
+
+node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.vite/
+
+.env
+.env.local
+*.local
+
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+deploy/
+README.md
+*.md

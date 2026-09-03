@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kamishibai
+  labels:
+    app.kubernetes.io/name: kamishibai
+    app.kubernetes.io/component: server
+spec:
+  # ---------------------------------------------------------------------------
+  # Exactly one replica, and never two at once.
+  # ---------------------------------------------------------------------------
+  #
+  # The database is SQLite on a ReadWriteOnce volume. SQLite permits a single
+  # writer, and two pods with the same file open would corrupt it. Both settings
+  # below are load-bearing:
+  #
+  #   replicas: 1        more than one writer is data loss
+  #   strategy: Recreate a RollingUpdate briefly runs the new pod alongside the
+  #                      old one, which is exactly the overlap that must not
+  #                      happen. Recreate accepts a few seconds of downtime to
+  #                      guarantee a single writer.
+  #
+  # For a small team this is the right trade: one binary, one file, trivially
+  # backed up. Scaling horizontally would mean moving off SQLite first.
+  replicas: 1
+  strategy:
+    type: Recreate
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kamishibai
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kamishibai
+        app.kubernetes.io/component: server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        # fsGroup makes the mounted volume group-writable by the container user.
+        # Without it the process cannot create the database file on first boot.
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: kamishibai
+          image: ghcr.io/dbowling/kamishibai:latest
+          imagePullPolicy: IfNotPresent
+
+          args:
+            - serve
+            - --http=0.0.0.0:8090
+            - --dir=/app/pb_data
+
+          ports:
+            - name: http
+              containerPort: 8090
+              protocol: TCP
+
+          env:
+            - name: KAMISHIBAI_TIMEZONE
+              valueFrom:
+                configMapKeyRef:
+                  name: kamishibai-config
+                  key: timezone
+            - name: KAMISHIBAI_ROLLUP_CRON
+              valueFrom:
+                configMapKeyRef:
+                  name: kamishibai-config
+                  key: rollupCron
+            - name: KAMISHIBAI_ROLLUP_LOOKBACK
+              valueFrom:
+                configMapKeyRef:
+                  name: kamishibai-config
+                  key: rollupLookback
+
+          # PocketBase's own health endpoint. Readiness gates traffic; liveness
+          # restarts a wedged process. The liveness timings are deliberately
+          # slack, because a restart mid-write is worse than a slow response.
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          # Migrations run before the listener starts, so a schema change on a
+          # large table could delay the first successful probe. startupProbe gives
+          # that up to two minutes without tripping liveness.
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              # No CPU limit on purpose: throttling SQLite writes causes latency
+              # spikes, and the pod is alone on its volume anyway.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            - name: data
+              mountPath: /app/pb_data
+
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: kamishibai-data
+
+      # Give SQLite time to finish a checkpoint and close cleanly.
+      terminationGracePeriodSeconds: 30
