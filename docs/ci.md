@@ -7,22 +7,32 @@ push-and-wait cycle to test.
 
 ## What runs
 
-Four jobs in parallel, then a gate.
+Five jobs in parallel, then a gate.
 
 | Job | Steps |
 | --- | --- |
 | `backend` | `go vet`, `go test -race`, build the binary |
 | `frontend` | `npm ci`, typecheck, Vitest, build the bundle |
+| `storybook` | `npm ci`, install Chromium, render every story as a browser test, build Storybook |
 | `manifests` | Render the Kubernetes manifests with kustomize |
 | `container` | Build the production image (which itself runs the Go tests) |
-| `ci` | Depends on all four; fails unless every one succeeded |
+| `ci` | Depends on all five; fails unless every one succeeded |
 
-`ci` exists so branch protection can require **one** check. Adding a fifth job later
+`ci` exists so branch protection can require **one** check. Adding a sixth job later
 does not mean reconfiguring the rule.
 
 Note that `ci` treats anything other than `success` as a failure, including
 `cancelled` and `skipped`. A gate job that only checks for `failure` reports green
 when a dependency was skipped, which is exactly when you least want a green tick.
+
+### Why Storybook is its own job
+
+The story tests need a real browser. Installing Chromium and its system libraries
+adds a minute or two and a large download, which the `frontend` job (typecheck,
+jsdom tests, build) does not otherwise pay for. A separate job keeps that quick
+feedback quick, runs the two in parallel, and shows up as its own failing check
+when a story breaks. It also builds Storybook, so a story that renders in the test
+runner but breaks the production build is still caught.
 
 ### Toolchains come from mise
 
@@ -104,6 +114,7 @@ mise run ci:list                        # list the jobs and their ids
 mise run ci:local                       # the whole workflow, as a pull request
 mise run ci:local -- --job backend      # one job
 mise run ci:local -- --job frontend
+mise run ci:local -- --job storybook
 mise run ci:push                        # as a push event instead
 mise run ci:local -- --base develop     # compare against a different base branch
 mise run ci:local -- --dryrun           # show what would run, without running it

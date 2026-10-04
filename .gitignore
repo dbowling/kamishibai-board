@@ -21,6 +21,11 @@ node_modules/
 frontend/dist/
 frontend/coverage/
 frontend/.vite/
+# Storybook static build, and what the browser test runner leaves behind on failure.
+frontend/storybook-static/
+frontend/**/__screenshots__/
+frontend/.vitest-attachments/
+*storybook.log
 *.tsbuildinfo
 
 # ---------------------------------------------------------------------------

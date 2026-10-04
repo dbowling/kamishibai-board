@@ -5,7 +5,8 @@
 ```bash
 mise run test              # everything
 mise run backend:test      # Go
-mise run frontend:test     # Vitest, single run
+mise run frontend:test     # Vitest, single run (jsdom, no browser)
+mise run frontend:storybook:test  # every story in headless Chromium
 mise run backend:test:cover # Go with a coverage summary
 ```
 
@@ -25,6 +26,7 @@ npm run test                    # single run
 npm run test:watch              # watch loop
 npx vitest run src/lib/         # one directory
 npx vitest run -t "flips"       # by test name
+npm run test:storybook          # story tests (needs Chromium, see below)
 ```
 
 ## How backend tests are set up
@@ -327,6 +329,70 @@ const instructions = screen.getByRole('region', { name: 'Instructions' });
 expect(instructions).toHaveTextContent('Check the backup dashboard.');
 ```
 
+## Story tests
+
+Storybook doubles as a browser test suite. `@storybook/addon-vitest` turns every
+story into a Vitest test that runs in headless Chromium:
+
+```bash
+cd frontend
+npm run test:storybook          # or: mise run frontend:storybook:test
+npm run storybook               # browse the same stories at http://localhost:6006
+```
+
+`npm run test` is unchanged: it runs only the `unit` Vitest project (jsdom) and needs
+no browser. The `storybook` project is selected separately, so the two never slow
+each other down. Both are defined in `frontend/vitest.config.ts`.
+
+**Every story is a smoke test.** A story that throws while rendering fails the
+suite, so adding a story for a new state is also adding a test that the state
+renders. **Play functions** add interaction on top: they click, type and assert on
+the rendered result, using the same role and accessible-name queries as the unit
+tests. Stories with a `play` function are the key flows (starting and completing a
+card, creating a card, signing in, the report controls, heatmap drawing, sanitised
+instructions).
+
+**No backend is needed.** `.storybook/preview.tsx` mocks two modules with
+Storybook's module mocking:
+
+- `src/lib/pocketbase.ts` is replaced by `src/lib/__mocks__/pocketbase.ts`, a small
+  observable auth store that refuses any data access it was not told about.
+- `src/lib/api.ts` is mocked in spy mode, and `src/stories/fakeBackend.ts` gives
+  each method an in-memory implementation over the data in `src/stories/fixtures.ts`.
+  Completing a card in a story really flips it, and the board's refetch shows it.
+
+A story that needs a different world overrides it in `beforeEach`, which runs after
+the project default: call `installFakeBackend(seed)` with a changed seed, or
+`mocked(api.report).mockImplementation(...)` for one method (`pending()` and
+`failure()` give the loading and error states).
+
+Two story parameters drive the app's context:
+
+| Parameter | Values | Effect |
+| --- | --- | --- |
+| `auth` | `'user'` (default), `'admin'`, `'signedOut'` | Who the auth store holds before the story renders |
+| `route` | e.g. `'/boards/b1/report'` | The URL the app's router sees; restored afterwards |
+
+Fixtures use fixed 2026 dates and periods that have already ended, so nothing
+depends on the clock and the board never schedules a refetch.
+
+Heat.js identifies each chart by its element id, which is built from the board id,
+so two heatmaps with the same board id on one page collide. Give every heatmap
+story its own board id. Pages that contain a heatmap are rendered in an iframe on
+the docs tab for the same reason.
+
+### Browsers
+
+The runner uses Playwright's Chromium. `playwright` is pinned in `package.json`, so
+the browser build must match it:
+
+```bash
+mise run frontend:storybook:browsers     # npx playwright install chromium
+```
+
+CI installs it with `npx playwright install --with-deps chromium`. If the tests time
+out connecting to the browser, this is the first thing to check.
+
 ## Guidelines
 
 **Test the property, not the implementation.** "An untouched card stores nothing"
@@ -350,7 +416,8 @@ long` saves the next person a calendar lookup.
 to find out locally whether CI will be happy.
 
 GitHub Actions runs the same mise tasks on every pull request and every pushed
-commit, with `-race` enabled for the Go tests. The Docker build additionally runs
+commit, with `-race` enabled for the Go tests. A separate `storybook` job runs the
+story tests and builds Storybook. The Docker build additionally runs
 `go vet ./... && go test ./...` inside the image build, so a container that cannot
 pass its own tests never gets tagged.
 

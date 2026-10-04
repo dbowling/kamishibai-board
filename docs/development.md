@@ -86,6 +86,8 @@ frontend/
     auth/              auth context and the sign-in screen
     boards/            the board, cards, card detail, new-card form
     reports/           completion history tables and the Heat.js activity heatmap
+    stories/           fixtures and the in-memory fake backend used by stories
+  .storybook/          Storybook config (stories live next to their components)
 ```
 
 ### Reading it for the first time
@@ -98,10 +100,13 @@ works. From there, `internal/occurrence` shows how that logic becomes rows, and
 ## Everyday tasks
 
 ```bash
-mise run test              # backend + frontend
+mise run test              # backend + frontend + story tests
 mise run backend:test      # Go only
 mise run backend:test:race # with the race detector, as CI runs it
 mise run frontend:test     # Vitest only, single run
+mise run frontend:storybook        # component workshop on :6006
+mise run frontend:storybook:test   # every story as a browser test
+mise run frontend:storybook:build  # static build into frontend/storybook-static
 mise run lint              # go vet + tsc --noEmit
 mise run check             # lint + test + build, i.e. what CI does
 mise run ci:local          # run the actual GitHub Actions workflow via act
@@ -118,6 +123,19 @@ For a watch loop while working on the frontend:
 ```bash
 cd frontend && npm run test:watch
 ```
+
+### Storybook
+
+Components can be viewed in isolation, and the pages as part of the app, without a
+backend running:
+
+```bash
+mise run frontend:storybook:browsers   # once, for the story tests
+mise run frontend:storybook            # http://localhost:6006
+```
+
+Each story has a docs page and controls. The same stories run as browser tests;
+see [Testing](testing.md#story-tests).
 
 ### Passing arguments to a task
 

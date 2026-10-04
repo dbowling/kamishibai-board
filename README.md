@@ -13,6 +13,7 @@ mise install       # install the pinned Go and Node toolchains
 mise run setup     # install dependencies
 mise run db:reset  # create the database, migrate it, load demo data
 mise run dev       # backend on :8090, frontend on :5173
+mise run frontend:storybook  # components in isolation, on :6006
 ```
 
 Then sign in at http://localhost:5173 as `admin@example.test` or
@@ -155,7 +156,7 @@ Some deliberate constraints worth knowing about:
 ## Common tasks
 
 ```
-mise run test              # backend and frontend tests
+mise run test              # backend, frontend and story tests
 mise run check             # what CI runs: lint, test, build
 mise run seed              # reload demo data (idempotent)
 mise run migrate:create -- add_widget_field
