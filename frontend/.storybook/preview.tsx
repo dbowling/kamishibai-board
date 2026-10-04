@@ -7,7 +7,8 @@ import { installFakeBackend } from '../src/stories/fakeBackend';
 import { USERS } from '../src/stories/fixtures';
 
 // PocketBase is swapped for src/lib/__mocks__/pocketbase.ts, and every method on
-// `api` becomes a spy whose behaviour each story sets in installFakeBackend().
+// `api` becomes a spy. Storybook restores those spies before each story, so
+// installFakeBackend() spies on them again and sets their behaviour.
 sb.mock(import('../src/lib/pocketbase.ts'));
 sb.mock(import('../src/lib/api.ts'), { spy: true });
 
