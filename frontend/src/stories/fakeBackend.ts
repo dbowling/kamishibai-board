@@ -69,6 +69,7 @@ export function defaultSeed(): Seed {
       b1: { board: BOARD, cards: [...CARDS, ARCHIVED_CARD], activity: ACTIVITY_DAYS },
       b2: secondBoard('b2', 't1', 'Security checks'),
       b3: secondBoard('b3', 't2', 'Support rota'),
+      b4: { ...secondBoard('b4', 't1', 'Retired checks'), board: { id: 'b4', teamId: 't1', name: 'Retired checks', description: '', archived: true } },
     },
     reports: {},
   };
@@ -141,9 +142,138 @@ export function installFakeBackend(seed: Seed = defaultSeed()) {
     }),
   );
 
-  stub('teams').mockImplementation(async () => db.teams);
+  // Navigation. The real server sorts by sort_order then name and enforces the
+  // rules below; the fake mirrors the ones a story can reasonably hit.
+  const bySortOrder = <T extends { sort_order: number; name: string }>(a: T, b: T) =>
+    a.sort_order - b.sort_order || a.name.localeCompare(b.name);
+  const findBoardRecord = (id: string) => {
+    for (const list of Object.values(db.boardsByTeam)) {
+      const record = list.find((candidate) => candidate.id === id);
+      if (record) return record;
+    }
+    return undefined;
+  };
+  const findTeam = (id: string) => db.teams.find((team) => team.id === id);
+  // Records are replaced rather than mutated: the app holds on to what it was given.
+  const patchBoard = (id: string, patch: Partial<BoardRecord>) => {
+    const record = findBoardRecord(id);
+    if (!record) return undefined;
+    const list = db.boardsByTeam[record.team] ?? [];
+    const next = { ...record, ...patch };
+    db.boardsByTeam[record.team] = list.map((candidate) => (candidate.id === id ? next : candidate));
+    const entry = db.boards[id];
+    if (entry) {
+      entry.board = {
+        ...entry.board,
+        name: next.name,
+        description: next.description,
+        archived: Boolean(next.archived_at),
+      };
+    }
+    return next;
+  };
+  const patchTeam = (id: string, patch: Partial<TeamRecord>) => {
+    const team = findTeam(id);
+    if (!team) return undefined;
+    const next = { ...team, ...patch };
+    db.teams = db.teams.map((candidate) => (candidate.id === id ? next : candidate));
+    return next;
+  };
+  let created = 0;
 
-  stub('boards').mockImplementation(async (teamId) => db.boardsByTeam[teamId] ?? []);
+  stub('teams').mockImplementation(async () => [...db.teams].sort(bySortOrder));
+
+  stub('boards').mockImplementation(async (teamId, options) =>
+    (db.boardsByTeam[teamId] ?? [])
+      .filter((board) => options?.includeArchived || !board.archived_at)
+      .sort(bySortOrder),
+  );
+
+  stub('createTeam').mockImplementation(async (name, description, sortOrder) => {
+    const team: TeamRecord = {
+      id: `nt${++created}`,
+      name,
+      description,
+      members: [],
+      sort_order: sortOrder ?? 0,
+      archived_at: '',
+    };
+    db.teams = [...db.teams, team];
+    db.boardsByTeam[team.id] = [];
+    return team;
+  });
+
+  stub('updateTeam').mockImplementation(async (id, input) => patchTeam(id, input) ?? notFound());
+  stub('archiveTeam').mockImplementation(
+    async (id) => patchTeam(id, { archived_at: SERVER_AT }) ?? notFound(),
+  );
+  stub('restoreTeam').mockImplementation(async (id) => patchTeam(id, { archived_at: '' }) ?? notFound());
+
+  stub('createBoard').mockImplementation(async (teamId, name, description, sortOrder) => {
+    if (!findTeam(teamId)) return failure('team: invalid team.');
+    const id = `nb${++created}`;
+    const record: BoardRecord = {
+      id,
+      team: teamId,
+      name,
+      description,
+      sort_order: sortOrder ?? 0,
+      archived_at: '',
+    };
+    db.boardsByTeam[teamId] = [...(db.boardsByTeam[teamId] ?? []), record];
+    db.boards[id] = { board: { id, teamId, name, description, archived: false }, cards: [], activity: [] };
+    return record;
+  });
+
+  stub('updateBoard').mockImplementation(async (id, input) => patchBoard(id, input) ?? notFound());
+  stub('archiveBoard').mockImplementation(
+    async (id) => patchBoard(id, { archived_at: SERVER_AT }) ?? notFound(),
+  );
+  stub('restoreBoard').mockImplementation(async (id) => patchBoard(id, { archived_at: '' }) ?? notFound());
+
+  stub('moveBoard').mockImplementation(async (boardId, teamId) => {
+    const board = findBoardRecord(boardId);
+    if (!board) return notFound();
+    const target = findTeam(teamId);
+    const source = findTeam(board.team);
+    if (!target) return failure('Target team not found.');
+    if (target.id === board.team) return failure('The board is already on that team.');
+    if (board.archived_at) return failure('This board is archived.');
+    if (target.archived_at || source?.archived_at) return failure('The team is archived.');
+    const targetBoards = db.boardsByTeam[teamId] ?? [];
+    if (targetBoards.some((other) => !other.archived_at && other.name === board.name)) {
+      return failure('A board with that name already exists on the target team.');
+    }
+    db.boardsByTeam[board.team] = (db.boardsByTeam[board.team] ?? []).filter(
+      (candidate) => candidate.id !== boardId,
+    );
+    const last = Math.max(0, ...targetBoards.map((other) => other.sort_order));
+    db.boardsByTeam[teamId] = [...targetBoards, { ...board, team: teamId, sort_order: last + 1 }];
+    const entry = db.boards[boardId];
+    if (entry) entry.board = { ...entry.board, teamId };
+    return {
+      boardId,
+      teamId,
+      moved: { cards: db.boards[boardId]?.cards.length ?? 0, occurrences: 0, rollups: 0 },
+    };
+  });
+
+  stub('saveOrder').mockImplementation(async (order) => {
+    // Validate everything first: the real endpoint writes nothing on a 400.
+    for (const id of order.teams ?? []) {
+      if (!findTeam(id)) return failure(`Unknown team ${id}.`);
+    }
+    for (const [teamId, ids] of Object.entries(order.boards ?? {})) {
+      for (const id of ids) {
+        if (findBoardRecord(id)?.team !== teamId) return failure(`Board ${id} is not on team ${teamId}.`);
+      }
+    }
+    (order.teams ?? []).forEach((id, index) => patchTeam(id, { sort_order: index }));
+    for (const ids of Object.values(order.boards ?? {})) {
+      ids.forEach((id, index) => patchBoard(id, { sort_order: index }));
+    }
+    return undefined;
+  });
 
   stub('boardState').mockImplementation(async (boardId, options): Promise<BoardState> => {
     const entry = db.boards[boardId];

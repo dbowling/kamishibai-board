@@ -7,11 +7,14 @@ There are two roles, `user` and `admin`. Teams are the tenant boundary.
 | Action | Who can do it |
 | --- | --- |
 | Read a team's boards, cards, occurrences, reports | Members of that team, and admins |
-| Create a board | Any member of the team |
+| Create, rename or reorder a board | Admins only |
+| Move a board to another team (history moves with it) | Admins only |
+| Reorder teams | Admins only |
 | Create a card | Any member of the team |
 | Start / complete / reopen a card | Any member of the team |
 | Edit a card | Any member of the team |
-| Archive a team, board or card | Any member of the team (teams: admins only) |
+| Archive a card | Any member of the team |
+| Archive a team or board | Admins only |
 | **Restore** an archived record | **Admins only** |
 | Create or rename a team, change its members | Admins only |
 | Change anybody's role | Admins only |
@@ -19,12 +22,21 @@ There are two roles, `user` and `admin`. Teams are the tenant boundary.
 | Create a user account | Admins and superusers only |
 | **Delete anything** | **Nobody** |
 
-Two asymmetries are deliberate and worth explaining.
+Three asymmetries are deliberate and worth explaining.
 
-**Anyone can archive, only admins can restore.** Tidying your own board should not
-need a ticket, but undoing someone else's tidying should involve someone with a
-wider view. Nothing is lost either way, since archiving is reversible and archived
-records stay readable.
+**Admins own the sidebar.** Teams and boards are the structure everybody navigates
+by, and they can now be reordered and moved, so one member rearranging them would
+rearrange them for everyone. Creating, renaming, archiving, restoring, reordering
+and moving teams and boards is therefore admin-only, enforced by the collection
+rules and the custom endpoints, not just hidden in the UI. Members keep read access
+to their own teams' boards and full day-to-day access to cards.
+
+**Anyone can archive a card, only admins can restore.** Tidying your own board's
+checks should not need a ticket, but undoing someone else's tidying should involve
+someone with a wider view. Nothing is lost either way, since archiving is
+reversible and archived records stay readable. Archiving a board or team is an
+update, and those update rules are `AdminOnly`, so for them archiving is admin-only
+too; the restore check in the hook is then a second line of defence.
 
 **Anyone on a team can create a card.** A board that needs an administrator to add
 a check is a board that gradually stops reflecting what the team actually does.
@@ -61,6 +73,7 @@ Authorisation is enforced in three places, each doing what the others cannot.
         │                  the server override?"
         ▼
 3. Custom endpoints       Go, in internal/api + internal/occurrence
+                          + internal/navigation
                           "the client does not get to decide this at all"
 ```
 
@@ -92,7 +105,7 @@ Applied like this:
 | --- | --- | --- | --- | --- |
 | `users` | `Authenticated` | `nil` | own record, or admin | `nil` |
 | `teams` | `OwnTeam` | `AdminOnly` | `AdminOnly` | `nil` |
-| `boards` | `TeamMember` | `TeamMember` | `TeamMember` | `nil` |
+| `boards` | `TeamMember` | `AdminOnly` | `AdminOnly` | `nil` |
 | `cards` | `TeamMember` | `BoardTeamMember` | `TeamMember` | `nil` |
 | `occurrences` | `TeamMember` | `nil` | `nil` | `nil` |
 | `report_rollups` | `TeamMember` | `nil` | `nil` | `nil` |
@@ -166,9 +179,13 @@ app.OnRecordUpdateRequest(schema.Users).BindFunc(func(e *core.RecordRequestEvent
 sent. Since the access rules depend on that column, a client that could set it freely
 could make its card readable by a team that does not own the board.
 
-**Nothing moves between teams.** Occurrences carry a denormalised team and rollups
-aggregate per team, so moving a board or card afterwards would leave that history
-attributed to the wrong tenant. Refused rather than rewritten.
+**Nothing moves between teams through the collection API.** Occurrences carry a
+denormalised team and rollups aggregate per team, so changing a board's or card's
+team with a plain PATCH would leave that history attributed to the wrong tenant.
+It is refused, admins included. The one exception is the admin-only
+`POST /api/kamishibai/boards/{boardId}/move` endpoint (Layer 3), which re-points the
+board, its cards, occurrences and rollups together in one transaction. Cards never
+move on their own.
 
 **`created_by` is stamped by the server** and preserved on update.
 
@@ -212,6 +229,25 @@ The same tests confirm a direct write to the collection fails:
 res := f.client.POST(t, "/api/collections/occurrences/records", token, forgedPayload)
 // must not be 200 or 201, and the table must still be empty
 ```
+
+#### Sidebar structure
+
+Two admin-only endpoints manage the sidebar:
+
+```
+POST /api/kamishibai/navigation/order        {"teams": [...], "boards": {"teamId": [...]}}
+POST /api/kamishibai/boards/{boardId}/move   {"team": "teamId"}
+```
+
+`order` sets `sort_order` to the array index for each listed team and board, in one
+transaction. It never moves anything: a board listed under a team it does not
+belong to is a 400 and nothing is written. `move` re-homes a board and its history
+(see above); it refuses archived boards or teams, a same-team move, and a name that
+clashes with an active board on the target team. Both return 403 to non-admins,
+decided before anything about the board is revealed.
+
+The admin check and the transactions live in `internal/navigation`, not in the HTTP
+handlers, so no future caller can skip them.
 
 Authorisation for these lives in `internal/occurrence`, not in the HTTP handler, so
 no future caller can skip it. `mutateOnce` checks team membership, then walks the

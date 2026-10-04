@@ -180,6 +180,8 @@ export interface TeamRecord {
   name: string;
   description: string;
   members: string[];
+  /** Ascending display order in the sidebar. */
+  sort_order: number;
   archived_at: string;
 }
 
@@ -190,6 +192,22 @@ export interface BoardRecord {
   description: string;
   sort_order: number;
   archived_at: string;
+}
+
+/** Response of POST /api/kamishibai/boards/{id}/move. */
+export interface MoveBoardResult {
+  boardId: string;
+  teamId: string;
+  /** How many child rows were re-pointed at the new team. */
+  moved: { cards: number; occurrences: number; rollups: number };
+}
+
+/** Body of POST /api/kamishibai/navigation/order. Both keys are optional. */
+export interface NavigationOrder {
+  /** Team ids in display order. */
+  teams?: string[];
+  /** Board ids in display order, keyed by the team that currently owns them. */
+  boards?: Record<string, string[]>;
 }
 
 export interface CurrentUser {

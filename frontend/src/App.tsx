@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from './auth/AuthProvider';
 import { LoginPage } from './auth/LoginPage';
 import { BoardPage } from './boards/BoardPage';
 import { useBoards } from './boards/useBoards';
+import { Sidebar } from './nav/Sidebar';
 import { ReportPage } from './reports/ReportPage';
 import { boardPath, reportPath, routeBoardId, useRouter } from './lib/router';
 
@@ -17,7 +18,10 @@ export function App() {
 
 function Shell() {
   const { user, signOut, isAdmin } = useAuth();
-  const { teams, loading, error } = useBoards();
+  // Admin-only: whether the sidebar is in edit mode. Archived teams and boards are
+  // only fetched while it is, so everyone else's requests are unchanged.
+  const [editing, setEditing] = useState(false);
+  const { teams, archived, loading, error, refresh } = useBoards(isAdmin && editing);
   const { route, navigate } = useRouter();
 
   const currentBoardId = routeBoardId(route);
@@ -30,6 +34,14 @@ function Shell() {
     const first = allBoards[0];
     if (first) navigate(boardPath(first.id), true);
   }, [route.name, allBoards, navigate]);
+
+  // An admin can archive or move away the board they are looking at. Rather than
+  // leave the page showing a board that is no longer listed, go home, which then
+  // lands on the first board that is.
+  useEffect(() => {
+    if (!isAdmin || !editing || loading || !currentBoardId) return;
+    if (!allBoards.some((board) => board.id === currentBoardId)) navigate('/', true);
+  }, [isAdmin, editing, loading, currentBoardId, allBoards, navigate]);
 
   return (
     <div className="shell">
@@ -60,55 +72,18 @@ function Shell() {
       </header>
 
       <div className="layout">
-        <nav className="sidebar" aria-label="Boards">
-          {loading && <p className="sidebar__note">Loading…</p>}
-          {error && (
-            <p className="sidebar__note" role="alert">
-              {error}
-            </p>
-          )}
-
-          {!loading && teams.length === 0 && !error && (
-            <p className="sidebar__note">
-              You are not on any team yet. An administrator can add you to one.
-            </p>
-          )}
-
-          {teams.map(({ team, boards }) => (
-            <section className="sidebar__team" key={team.id}>
-              <h2 className="sidebar__team-name">{team.name}</h2>
-
-              {boards.length === 0 ? (
-                <p className="sidebar__note">No boards yet.</p>
-              ) : (
-                <ul className="sidebar__boards">
-                  {boards.map((board) => {
-                    const active = board.id === currentBoardId;
-                    return (
-                      <li key={board.id}>
-                        <a
-                          className={active ? 'sidebar__link is-active' : 'sidebar__link'}
-                          href={boardPath(board.id)}
-                          aria-current={active ? 'page' : undefined}
-                          onClick={(event) => {
-                            // Keep it a real link so middle-click and
-                            // open-in-new-tab behave, but navigate in-app on a
-                            // plain left click.
-                            if (event.metaKey || event.ctrlKey || event.shiftKey) return;
-                            event.preventDefault();
-                            navigate(boardPath(board.id));
-                          }}
-                        >
-                          {board.name}
-                        </a>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
-          ))}
-        </nav>
+        <Sidebar
+          teams={teams}
+          archived={archived}
+          loading={loading}
+          error={error}
+          currentBoardId={currentBoardId}
+          navigate={navigate}
+          isAdmin={isAdmin}
+          editing={editing}
+          onEditingChange={setEditing}
+          onChanged={refresh}
+        />
 
         <main className="main" id="main">
           {currentBoardId && (

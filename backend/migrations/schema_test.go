@@ -109,12 +109,14 @@ func TestTeamScopedReadRules(t *testing.T) {
 	}
 }
 
-func TestAnyTeamMemberCanCreateBoardsAndCards(t *testing.T) {
+func TestOnlyAdminsManageBoardsButAnyMemberCanCreateCards(t *testing.T) {
 	app := testutil.NewApp(t)
 
+	// Boards are sidebar structure, so creating, renaming, archiving and
+	// reordering them is an admin action. Cards are the day-to-day work.
 	boards := testutil.Collection(t, app, schema.Boards)
-	assertRule(t, "boards.Create", boards.CreateRule, schema.TeamMember)
-	assertRule(t, "boards.Update", boards.UpdateRule, schema.TeamMember)
+	assertRule(t, "boards.Create", boards.CreateRule, schema.AdminOnly)
+	assertRule(t, "boards.Update", boards.UpdateRule, schema.AdminOnly)
 
 	// Cards authorise creation from the board, because their team is derived
 	// server-side and so is not in the body the create rule sees.
@@ -316,5 +318,21 @@ func assertRuleNil(t *testing.T, label string, got *string) {
 	t.Helper()
 	if got != nil {
 		t.Errorf("%s rule = %q, want nil (superusers only)", label, *got)
+	}
+}
+
+// Teams and boards are both orderable in the sidebar, so both need the field.
+func TestTeamsAndBoardsHaveASortOrder(t *testing.T) {
+	app := testutil.NewApp(t)
+
+	for _, name := range []string{schema.Teams, schema.Boards} {
+		c := testutil.Collection(t, app, name)
+		field, ok := c.Fields.GetByName(schema.FieldSortOrder).(*core.NumberField)
+		if !ok {
+			t.Fatalf("%s.%s is missing or not a number field", name, schema.FieldSortOrder)
+		}
+		if !field.OnlyInt {
+			t.Errorf("%s.%s should be integer-only", name, schema.FieldSortOrder)
+		}
 	}
 }

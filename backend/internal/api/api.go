@@ -2,7 +2,7 @@
 //
 // Ordinary reads and writes of teams, boards and cards go through PocketBase's
 // generated collection API, guarded by the rules in the migrations. This package
-// covers the four things that API cannot do safely or efficiently:
+// covers the five things that API cannot do safely or efficiently:
 //
 //  1. Recording work. start/complete/reopen must derive the period from the
 //     server clock and stamp attribution from the authenticated request, so
@@ -18,6 +18,12 @@
 //
 //  4. Activity. Counting completions per calendar day in the board's timezone,
 //     which SQLite cannot do and the browser must not.
+//
+//  5. Sidebar structure. Reordering teams and boards touches many rows that must
+//     change together, and moving a board between teams has to carry its cards,
+//     occurrences and rollups with it. Both are admin-only and transactional, so
+//     they cannot be assembled safely from individual collection writes. The
+//     logic lives in internal/navigation; the handlers here only translate.
 package api
 
 import (
@@ -35,6 +41,7 @@ import (
 	"github.com/dbowling/kamishibai/backend/internal/access"
 	"github.com/dbowling/kamishibai/backend/internal/config"
 	"github.com/dbowling/kamishibai/backend/internal/domain"
+	"github.com/dbowling/kamishibai/backend/internal/navigation"
 	"github.com/dbowling/kamishibai/backend/internal/occurrence"
 	"github.com/dbowling/kamishibai/backend/internal/rollup"
 	"github.com/dbowling/kamishibai/backend/internal/schema"
@@ -73,6 +80,10 @@ func (h *Handler) Register(se *core.ServeEvent) {
 	group.POST("/cards/{cardId}/start", h.startCard)
 	group.POST("/cards/{cardId}/complete", h.completeCard)
 	group.POST("/cards/{cardId}/reopen", h.reopenCard)
+
+	// Admin-only. The checks live in internal/navigation, not in the handlers.
+	group.POST("/navigation/order", h.setNavigationOrder)
+	group.POST("/boards/{boardId}/move", h.moveBoard)
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +386,68 @@ func mapServiceError(e *core.RequestEvent, err error) error {
 		return e.BadRequestError("There is nothing recorded for the current period.", err)
 	default:
 		return e.InternalServerError("Could not record the change.", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Navigation
+// ---------------------------------------------------------------------------
+
+// setNavigationOrder persists a drag-and-drop reordering of teams and boards.
+func (h *Handler) setNavigationOrder(e *core.RequestEvent) error {
+	var body navigation.Order
+	if err := json.NewDecoder(e.Request.Body).Decode(&body); err != nil {
+		return e.BadRequestError("The request body must be valid JSON.", err)
+	}
+
+	if err := navigation.SetOrder(e.App, e.Auth, body); err != nil {
+		return mapNavigationError(e, err)
+	}
+	return e.NoContent(http.StatusNoContent)
+}
+
+// moveBoard re-homes a board, with its history, onto another team.
+func (h *Handler) moveBoard(e *core.RequestEvent) error {
+	boardID := e.Request.PathValue("boardId")
+	if boardID == "" {
+		return e.BadRequestError("Missing board id.", nil)
+	}
+
+	var body moveBoardRequest
+	// A missing or malformed body is reported by the service as a missing target
+	// team, after the admin check, so it cannot be used to probe as a non-admin.
+	if e.Request.Body != nil {
+		_ = json.NewDecoder(e.Request.Body).Decode(&body)
+	}
+
+	result, err := navigation.MoveBoard(e.App, e.Auth, boardID, body.Team)
+	if err != nil {
+		return mapNavigationError(e, err)
+	}
+
+	return e.JSON(http.StatusOK, moveBoardResponse{
+		BoardID: result.BoardID,
+		TeamID:  result.TeamID,
+		Moved: movedCountsDTO{
+			Cards:       result.Cards,
+			Occurrences: result.Occurrences,
+			Rollups:     result.Rollups,
+		},
+	})
+}
+
+// mapNavigationError translates the navigation service's errors into responses.
+func mapNavigationError(e *core.RequestEvent, err error) error {
+	var invalid *navigation.InvalidError
+	switch {
+	case errors.Is(err, navigation.ErrForbidden):
+		return e.ForbiddenError("Only an admin can change the navigation.", err)
+	case errors.Is(err, navigation.ErrBoardNotFound):
+		return e.NotFoundError("No such board.", err)
+	case errors.As(err, &invalid):
+		return e.BadRequestError(invalid.Message, err)
+	default:
+		return e.InternalServerError("Could not update the navigation.", err)
 	}
 }
 

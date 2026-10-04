@@ -218,6 +218,8 @@ deploy, and the cost of writing one is a few minutes while the schema is fresh i
 your mind.
 
 Note that a down migration should reverse *its own* change, not correct history.
+`1788393609_admin_navigation.go` (adds `teams.sort_order` and makes board create and
+update admin-only) is the most recent example of a rule change alongside a field.
 `1788393608_fix_team_member_rules.go` restores the previous, buggy rules on the way
 down, which looks odd until you consider the alternative: if down migrations
 "improved" things, running down then up would not return you to where you started.
@@ -316,7 +318,8 @@ the old and new value of a field. Those live in `internal/hooks` instead:
 - a user cannot change their own `role` (the update rule has to allow profile
   edits, and without this that would include self-promotion to admin)
 - a card's `team` is always recomputed from its board, discarding client input
-- nothing moves between teams
+- nothing moves between teams through the collection API (admins move boards via
+  the `boards/{id}/move` endpoint, which carries the history along)
 - `created_by` is stamped by the server and then immutable
 - archiving stamps `archived_by`; restoring is admin-only
 

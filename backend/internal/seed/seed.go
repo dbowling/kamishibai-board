@@ -265,6 +265,7 @@ func (s *Seeder) seedTeams(app core.App, users map[string]*core.Record) (map[str
 
 		record.Set(schema.FieldDescription, spec.Description)
 		record.Set(schema.FieldMembers, memberIDs)
+		record.Set(schema.FieldSortOrder, spec.SortOrder)
 		// Clear any archived state so a reseed restores a clean board.
 		record.Set(schema.FieldArchivedAt, "")
 		record.Set(schema.FieldArchivedBy, "")
