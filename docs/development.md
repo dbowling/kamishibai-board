@@ -85,7 +85,7 @@ frontend/
     lib/               pocketbase client, types, api wrapper, pure helpers
     auth/              auth context and the sign-in screen
     boards/            the board, cards, card detail, new-card form
-    reports/           the reporting screen
+    reports/           completion history tables and the Heat.js activity heatmap
 ```
 
 ### Reading it for the first time

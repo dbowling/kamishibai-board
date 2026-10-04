@@ -1123,3 +1123,118 @@ code {
   color: var(--accent);
   border-color: currentcolor;
 }
+
+/*
+ * Completions heatmap (Heat.js).
+ *
+ * Heat.js styles itself from --heat-js-* custom properties that its stylesheet
+ * declares on :root with a dark palette. Upstream ships ready-made theme files,
+ * but they also set :root, so importing one would fight our own dark-mode media
+ * query and still paint the chart in someone else's green. Overriding the
+ * variables on the wrapper instead re-themes only our instance, follows the same
+ * light and dark switch as the rest of the app, and reuses the app's tokens.
+ *
+ * Two details that are easy to trip over:
+ *  - Heat.js defines many variables in terms of others
+ *    (--heat-js-title-text-color: var(--heat-js-color-white)). A var() inside a
+ *    custom property is resolved where it is declared, on :root, so redefining
+ *    --heat-js-color-white here would not reach them. Each derived variable that
+ *    matters is therefore restated below, which is what the upstream light theme
+ *    does too.
+ *  - The cell colours are four alpha steps of one green. The channels live in
+ *    --heatmap-rgb so the light and dark palettes only differ in one place.
+ */
+.heatmap {
+  --heatmap-rgb: 26, 127, 75; /* --done, light */
+  --heatmap-strong-text: var(--accent-text);
+
+  --heat-js-default-font: var(--font);
+  --heat-js-default-width: 100%;
+
+  /* Base palette. */
+  --heat-js-color-black-dark: var(--surface);
+  --heat-js-color-white: var(--text);
+  --heat-js-color-black: var(--surface-2);
+  --heat-js-color-gray: var(--text-muted);
+
+  /* Container. */
+  --heat-js-container-background-color: var(--surface);
+  --heat-js-container-border-color: var(--border);
+
+  /* Title bar, year menu and tooltips, which Heat.js paints with the base palette. */
+  --heat-js-title-background-color: var(--surface);
+  --heat-js-title-border-color: var(--border);
+  --heat-js-title-text-color: var(--text);
+  --heat-js-title-opener-text-color-hover: var(--text-muted);
+  --heat-js-title-background-color-hover: var(--surface-2);
+  --heat-js-title-text-color-hover: var(--text);
+  --heat-js-years-background-color: var(--surface);
+  --heat-js-years-border-color: var(--border);
+  --heat-js-years-text-color: var(--text);
+  --heat-js-years-background-color-hover: var(--surface-2);
+  --heat-js-years-text-color-hover: var(--text);
+  --heat-js-tooltip-background-color: var(--surface);
+  --heat-js-tooltip-border-color: var(--border);
+  --heat-js-tooltip-text-color: var(--text);
+  --heat-js-tooltip-count-background-color: var(--surface-2);
+  --heat-js-tooltip-color-positive: var(--done);
+  --heat-js-tooltip-color-negative: var(--danger);
+
+  /* An empty day. */
+  --heat-js-day-background-color: var(--surface-2);
+  --heat-js-day-border-color: var(--border);
+  --heat-js-day-background-color-hover: var(--border);
+
+  /* The four steps from least to most completions. */
+  --heat-js-day-color-1-background-color: rgba(var(--heatmap-rgb), 0.25);
+  --heat-js-day-color-1-border-color: rgba(var(--heatmap-rgb), 0.15);
+  --heat-js-day-color-1-text-color: var(--text);
+  --heat-js-day-color-2-background-color: rgba(var(--heatmap-rgb), 0.50);
+  --heat-js-day-color-2-border-color: rgba(var(--heatmap-rgb), 0.25);
+  --heat-js-day-color-2-text-color: var(--text);
+  --heat-js-day-color-3-background-color: rgba(var(--heatmap-rgb), 0.75);
+  --heat-js-day-color-3-border-color: rgba(var(--heatmap-rgb), 0.50);
+  --heat-js-day-color-3-text-color: var(--heatmap-strong-text);
+  --heat-js-day-color-4-background-color: rgba(var(--heatmap-rgb), 1);
+  --heat-js-day-color-4-border-color: rgba(var(--heatmap-rgb), 0.75);
+  --heat-js-day-color-4-text-color: var(--heatmap-strong-text);
+
+  /* The days and months bar charts reuse the strongest step. */
+  --heat-js-view-days-background-color: var(--heat-js-day-color-4-background-color);
+  --heat-js-view-days-border-color: var(--heat-js-day-color-4-border-color);
+  --heat-js-view-days-text-color: var(--heat-js-day-color-4-text-color);
+  --heat-js-view-months-background-color: var(--heat-js-day-color-4-background-color);
+  --heat-js-view-months-border-color: var(--heat-js-day-color-4-border-color);
+  --heat-js-view-months-text-color: var(--heat-js-day-color-4-text-color);
+  --heat-js-years-current-color: var(--heat-js-day-color-4-background-color);
+
+  /* Buttons, including the cadence toggles under the chart. */
+  --heat-js-button-background-color: var(--surface-2);
+  --heat-js-button-border-color: var(--border);
+  --heat-js-button-text-color: var(--text);
+  --heat-js-button-background-color-hover: var(--border);
+  --heat-js-button-text-color-hover: var(--text);
+  --heat-js-button-background-color-active: var(--border);
+  --heat-js-button-text-color-active: var(--text);
+  --heat-js-button-color-disabled: var(--text-muted);
+
+  /* Summary boxes, inputs and the scroll bar. */
+  --heat-js-yearly-statistics-box-background-color: var(--surface-2);
+  --heat-js-yearly-statistics-box-border-color: var(--border);
+  --heat-js-yearly-statistics-box-text-color: var(--text);
+  --heat-js-scroll-bar-thumb-color: var(--border);
+  --heat-js-checkbox-background-color-checked: var(--heat-js-day-color-4-background-color);
+}
+
+@media (prefers-color-scheme: dark) {
+  .heatmap {
+    --heatmap-rgb: 95, 208, 138; /* --done, dark */
+    --heatmap-strong-text: var(--bg);
+  }
+}
+
+/* Heat.js caps its width at 700px by default; let it fill the panel instead. */
+.heatmap .heat-js {
+  width: 100%;
+  max-width: 100%;
+}

@@ -3,6 +3,7 @@ import { api, errorMessage } from '../lib/api';
 import { cadenceLabel, percent, periodKeyLabel, periodKeyShortLabel } from '../lib/format';
 import { CADENCES } from '../lib/types';
 import type { Cadence, Report } from '../lib/types';
+import { ActivityPanel } from './ActivityPanel';
 
 interface ReportPageProps {
   boardId: string;
@@ -11,10 +12,14 @@ interface ReportPageProps {
 /**
  * Completion history for a board.
  *
- * Charted as a labelled table with proportional bars rather than a canvas: the
- * numbers stay readable to a screen reader and there is no charting dependency to
- * carry. The visual bar is decorative and the figure next to it is the real
- * content.
+ * The per-period and per-task figures are charted as labelled tables with
+ * proportional bars rather than a canvas: the numbers stay readable to a screen
+ * reader and need no charting library. The visual bar is decorative and the figure
+ * next to it is the real content.
+ *
+ * The one exception is the completions-by-day heatmap, which is a calendar grid
+ * that a table would show badly, so it is drawn by Heat.js (see ActivityPanel). It
+ * is isolated to that panel and carries a written summary for screen readers.
  */
 export function ReportPage({ boardId }: ReportPageProps) {
   const [cadence, setCadence] = useState<Cadence>('daily');
@@ -102,6 +107,10 @@ export function ReportPage({ boardId }: ReportPageProps) {
           {error}
         </p>
       )}
+
+      {/* Outside the conditional below: the heatmap does not depend on the
+          selected cadence, so it must show even when that cadence has no rows. */}
+      <ActivityPanel boardId={boardId} />
 
       {loading && !report && <p className="panel">Loading the report…</p>}
 

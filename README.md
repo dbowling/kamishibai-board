@@ -67,6 +67,11 @@ period. Historical reporting reads a small dense table; the still-open period is
 computed live and labelled as such, so you can tell a settled number from a moving
 one.
 
+The Reporting tab also carries a completions heatmap, drawn by
+[Heat.js](https://www.heatjs.com). It reads completion timestamps straight from
+`occurrences` and the server buckets them by calendar day in the board's timezone,
+so it is a live view of the history rather than a snapshot.
+
 The rollup job re-checks the last few closed periods on every run rather than only
 the most recent one. If the process was down over a weekend, the next run fills the
 gap instead of leaving a permanent hole.

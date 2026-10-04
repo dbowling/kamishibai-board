@@ -2,7 +2,7 @@
 //
 // Ordinary reads and writes of teams, boards and cards go through PocketBase's
 // generated collection API, guarded by the rules in the migrations. This package
-// covers the three things that API cannot do safely or efficiently:
+// covers the four things that API cannot do safely or efficiently:
 //
 //  1. Recording work. start/complete/reopen must derive the period from the
 //     server clock and stamp attribution from the authenticated request, so
@@ -15,6 +15,9 @@
 //
 //  3. Reporting. Stitching frozen rollups together with the still-open current
 //     period, and deriving per-card rates.
+//
+//  4. Activity. Counting completions per calendar day in the board's timezone,
+//     which SQLite cannot do and the browser must not.
 package api
 
 import (
@@ -27,6 +30,7 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/types"
 
 	"github.com/dbowling/kamishibai/backend/internal/access"
 	"github.com/dbowling/kamishibai/backend/internal/config"
@@ -64,6 +68,7 @@ func (h *Handler) Register(se *core.ServeEvent) {
 	group.GET("/periods/current", h.currentPeriods)
 	group.GET("/boards/{boardId}/state", h.boardState)
 	group.GET("/boards/{boardId}/report", h.boardReport)
+	group.GET("/boards/{boardId}/activity", h.boardActivity)
 
 	group.POST("/cards/{cardId}/start", h.startCard)
 	group.POST("/cards/{cardId}/complete", h.completeCard)
@@ -492,6 +497,91 @@ func (h *Handler) boardReport(e *core.RequestEvent) error {
 	if response.Totals.Expected > 0 {
 		response.Totals.CompletionRate = float64(response.Totals.Done) / float64(response.Totals.Expected)
 	}
+
+	return e.JSON(http.StatusOK, response)
+}
+
+// dayLayout is the date-only form of an activity bucket, e.g. 2026-09-03.
+const dayLayout = "2006-01-02"
+
+// boardActivity returns how many cards were completed on each calendar day.
+//
+// Unlike boardReport this reads the occurrences themselves rather than rollups:
+// a rollup is a per-period snapshot, and a heatmap needs the day each completion
+// actually happened, including inside periods that are still open.
+func (h *Handler) boardActivity(e *core.RequestEvent) error {
+	board, err := h.loadReadableBoard(e)
+	if err != nil {
+		return err
+	}
+
+	// Two columns rather than whole records: occurrences grow without bound, but
+	// the aggregate is at most a few rows per day, so there is no reason to
+	// hydrate every row just to read a timestamp and a cadence.
+	//
+	// Filtering on status as well as completed_at matters. Reopen clears
+	// completed_at today, but status is the source of truth for "done", so a
+	// reopened card can never be counted even if that ever stopped being true.
+	var rows []struct {
+		CompletedAt types.DateTime `db:"completed_at"`
+		Cadence     string         `db:"cadence"`
+	}
+	err = e.App.DB().
+		Select(schema.FieldCompletedAt, schema.FieldCadence).
+		From(schema.Occurrences).
+		Where(dbx.HashExp{
+			schema.FieldBoard:  board.Id,
+			schema.FieldStatus: string(domain.StatusDone),
+		}).
+		AndWhere(dbx.NewExp(schema.FieldCompletedAt + " != ''")).
+		All(&rows)
+	if err != nil {
+		return e.InternalServerError("Could not read the completion history.", err)
+	}
+
+	// Bucketed here rather than in SQL: SQLite has no timezone database, and the
+	// server already owns the calendar, so the day boundaries (and DST) agree with
+	// every other period the app reports.
+	loc := h.cfg.Calendar.Location()
+	type bucket struct{ date, cadence string }
+	counts := make(map[bucket]int)
+	for _, row := range rows {
+		if row.CompletedAt.IsZero() {
+			continue
+		}
+		key := bucket{row.CompletedAt.Time().In(loc).Format(dayLayout), row.Cadence}
+		counts[key]++
+	}
+
+	// An empty, non-nil slice so a quiet board serialises as [] rather than null,
+	// which the client would otherwise have to special-case.
+	response := activityResponse{
+		Board:    newBoardDTO(board),
+		Timezone: h.cfg.Timezone,
+		Days:     []activityDayDTO{},
+	}
+	for key, completed := range counts {
+		response.Days = append(response.Days, activityDayDTO{
+			Date:      key.date,
+			Cadence:   key.cadence,
+			Completed: completed,
+		})
+		response.Total += completed
+	}
+
+	// Map order is random, so sort for a stable response: by day, then in the
+	// same cadence order the rest of the API uses.
+	order := make(map[string]int, len(domain.Cadences()))
+	for i, cadence := range domain.Cadences() {
+		order[string(cadence)] = i
+	}
+	sort.Slice(response.Days, func(i, j int) bool {
+		a, b := response.Days[i], response.Days[j]
+		if a.Date != b.Date {
+			return a.Date < b.Date
+		}
+		return order[a.Cadence] < order[b.Cadence]
+	})
 
 	return e.JSON(http.StatusOK, response)
 }

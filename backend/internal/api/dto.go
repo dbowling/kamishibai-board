@@ -153,6 +153,23 @@ type reportResponse struct {
 	Totals   reportTotalsDTO  `json:"totals"`
 }
 
+// activityResponse feeds the completions heatmap: how many cards were finished on
+// each calendar day, split by cadence so one cadence can be viewed on its own.
+type activityResponse struct {
+	Board    boardDTO         `json:"board"`
+	Timezone string           `json:"timezone"`
+	Days     []activityDayDTO `json:"days"`
+	Total    int              `json:"total"`
+}
+
+// activityDayDTO is one (day, cadence) bucket. Date is YYYY-MM-DD in the board's
+// timezone: the browser must not re-bucket timestamps itself.
+type activityDayDTO struct {
+	Date      string `json:"date"`
+	Cadence   string `json:"cadence"`
+	Completed int    `json:"completed"`
+}
+
 // reportPointDTO is one period's numbers. Source records whether the figures were
 // read from a frozen snapshot or computed live, which matters because only the
 // former is immutable.

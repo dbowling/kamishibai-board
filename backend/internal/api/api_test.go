@@ -3,7 +3,9 @@ package api_test
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
@@ -90,6 +92,7 @@ func TestCustomEndpointsRequireAuth(t *testing.T) {
 		{http.MethodGet, "/api/kamishibai/periods/current"},
 		{http.MethodGet, "/api/kamishibai/boards/" + f.board.Id + "/state"},
 		{http.MethodGet, "/api/kamishibai/boards/" + f.board.Id + "/report?cadence=daily"},
+		{http.MethodGet, "/api/kamishibai/boards/" + f.board.Id + "/activity"},
 		{http.MethodPost, "/api/kamishibai/cards/" + f.card.Id + "/start"},
 		{http.MethodPost, "/api/kamishibai/cards/" + f.card.Id + "/complete"},
 		{http.MethodPost, "/api/kamishibai/cards/" + f.card.Id + "/reopen"},
@@ -770,5 +773,89 @@ func TestBoardReportHidesOtherTeams(t *testing.T) {
 	res := f.client.GET(t, "/api/kamishibai/boards/"+f.otherBoard.Id+"/report?cadence=daily", f.memberToken)
 	if res.Status != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", res.Status)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Activity
+// ---------------------------------------------------------------------------
+
+func TestBoardActivityCountsCompletionsPerDay(t *testing.T) {
+	f := newFixture(t)
+
+	if res := f.client.POST(t, "/api/kamishibai/cards/"+f.card.Id+"/complete", f.memberToken, nil); res.Status != http.StatusOK {
+		t.Fatalf("complete: %s", res.Body)
+	}
+
+	res := f.client.GET(t, "/api/kamishibai/boards/"+f.board.Id+"/activity", f.memberToken)
+	if res.Status != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", res.Status, res.Body)
+	}
+
+	var body struct {
+		Timezone string `json:"timezone"`
+		Days     []struct {
+			Date      string `json:"date"`
+			Cadence   string `json:"cadence"`
+			Completed int    `json:"completed"`
+		} `json:"days"`
+		Total int `json:"total"`
+	}
+	res.JSON(t, &body)
+
+	if body.Timezone != domain.DefaultTimezone {
+		t.Errorf("timezone = %q, want %q", body.Timezone, domain.DefaultTimezone)
+	}
+	if len(body.Days) != 1 {
+		t.Fatalf("got %d days, want 1: %s", len(body.Days), res.Body)
+	}
+
+	// The completion is stamped by the real server clock, so compare against the
+	// real date in the board's timezone. This can only flake if the test straddles
+	// midnight there, the same exposure TestBoardReport accepts.
+	today := time.Now().In(config.Default().Calendar.Location()).Format("2006-01-02")
+	day := body.Days[0]
+	if day.Date != today {
+		t.Errorf("date = %q, want %q", day.Date, today)
+	}
+	if day.Cadence != string(domain.Daily) {
+		t.Errorf("cadence = %q, want daily", day.Cadence)
+	}
+	if day.Completed != 1 {
+		t.Errorf("completed = %d, want 1", day.Completed)
+	}
+	if body.Total != 1 {
+		t.Errorf("total = %d, want 1", body.Total)
+	}
+}
+
+// A heatmap client iterates days, so an empty board must say [] and not null.
+func TestBoardActivityIsEmptyForUntouchedBoard(t *testing.T) {
+	f := newFixture(t)
+
+	res := f.client.GET(t, "/api/kamishibai/boards/"+f.board.Id+"/activity", f.memberToken)
+	if res.Status != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", res.Status, res.Body)
+	}
+
+	if !strings.Contains(string(res.Body), `"days":[]`) {
+		t.Errorf("days should serialise as an empty array, not null: %s", res.Body)
+	}
+
+	var body struct {
+		Total int `json:"total"`
+	}
+	res.JSON(t, &body)
+	if body.Total != 0 {
+		t.Errorf("total = %d, want 0", body.Total)
+	}
+}
+
+func TestBoardActivityHidesOtherTeams(t *testing.T) {
+	f := newFixture(t)
+
+	res := f.client.GET(t, "/api/kamishibai/boards/"+f.otherBoard.Id+"/activity", f.memberToken)
+	if res.Status != http.StatusNotFound {
+		t.Errorf("status = %d, want 404: %s", res.Status, res.Body)
 	}
 }
