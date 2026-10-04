@@ -18,10 +18,13 @@
     "verbatimModuleSyntax": true,
     "resolveJsonModule": true,
     "noEmit": true,
+    // Storybook's module mocking is addressed by file name, e.g.
+    // sb.mock(import('../src/lib/api.ts')), so the extension must be importable.
+    "allowImportingTsExtensions": true,
 
     // vite/client supplies import.meta.env and the CSS side-effect import
     // declarations; node is needed for process.env in vite.config.ts.
     "types": ["vite/client", "node", "vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", ".storybook", "vite.config.ts", "vitest.config.ts"]
 }

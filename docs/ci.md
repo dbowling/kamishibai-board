@@ -7,22 +7,53 @@ push-and-wait cycle to test.
 
 ## What runs
 
-Four jobs in parallel, then a gate.
+Five jobs in parallel, then a gate.
 
 | Job | Steps |
 | --- | --- |
 | `backend` | `go vet`, `go test -race`, build the binary |
 | `frontend` | `npm ci`, typecheck, Vitest, build the bundle |
+| `storybook` | When frontend files changed: `npm ci`, install headless Chromium, render every story as a browser test, build Storybook |
 | `manifests` | Render the Kubernetes manifests with kustomize |
 | `container` | Build the production image (which itself runs the Go tests) |
-| `ci` | Depends on all four; fails unless every one succeeded |
+| `ci` | Depends on all five; fails unless every one succeeded |
 
-`ci` exists so branch protection can require **one** check. Adding a fifth job later
+`ci` exists so branch protection can require **one** check. Adding a sixth job later
 does not mean reconfiguring the rule.
 
 Note that `ci` treats anything other than `success` as a failure, including
 `cancelled` and `skipped`. A gate job that only checks for `failure` reports green
 when a dependency was skipped, which is exactly when you least want a green tick.
+
+### Why Storybook is its own job
+
+The story tests need a real browser, which the `frontend` job (typecheck, jsdom
+tests, build) does not otherwise pay for. A separate job runs the two in parallel
+and shows up as its own failing check when a story breaks. It also builds
+Storybook, so a story that renders in the test runner but breaks the static build
+is still caught.
+
+Two things keep it cheap:
+
+- **It only does work when it matters.** Its first step diffs the commit against
+  its base and skips the remaining steps unless something under `frontend/` (other
+  than a `*.test.ts(x)` file), `.mise.toml` or this workflow changed. Skipped steps
+  still leave the job green, so the `ci` gate needs no special case. A
+  workflow-level `paths:` filter was deliberately not used: on a backend-only pull
+  request it would never report the check at all, and a required check that never
+  reports blocks the merge. Events it cannot diff reliably (a manual run, a new
+  branch, a force push, act) run the full job.
+- **It downloads no browser when it can avoid it.** The hosted runner image
+  already ships Google Chrome, so the job points the tests at it via
+  `CHROME_PATH`, which `vitest.config.ts` passes to Playwright. That Chrome is not
+  the build Playwright pins, and it moves whenever GitHub updates the image, so the
+  job prints its version before the tests run. If a story passes locally but fails
+  in CI, compare that version with yours first. Without a preinstalled Chrome (act,
+  for example) it falls back to `npx playwright install --only-shell chromium`,
+  about 100 MB and a few seconds.
+- **It fails fast on a hang.** A full run takes well under a minute, so the job is
+  capped at 10 minutes and the browser, test and build steps have their own
+  shorter limits.
 
 ### Toolchains come from mise
 
@@ -104,6 +135,7 @@ mise run ci:list                        # list the jobs and their ids
 mise run ci:local                       # the whole workflow, as a pull request
 mise run ci:local -- --job backend      # one job
 mise run ci:local -- --job frontend
+mise run ci:local -- --job storybook
 mise run ci:push                        # as a push event instead
 mise run ci:local -- --base develop     # compare against a different base branch
 mise run ci:local -- --dryrun           # show what would run, without running it

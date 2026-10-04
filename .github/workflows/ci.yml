@@ -105,6 +105,123 @@ jobs:
       - name: Build
         run: mise run frontend:build
 
+  storybook:
+    name: Storybook
+    runs-on: ubuntu-latest
+    # A full run takes well under a minute. The per-step limits below catch a hang
+    # (such as a browser install that never finishes) sooner than this does.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          # Two commits so a pull request's merge commit can be diffed against its
+          # base (its first parent) without fetching the whole history.
+          fetch-depth: 2
+
+      # Only frontend code and the files that decide how it is built or tested can
+      # change what a story renders. When none of them changed, the remaining steps
+      # are skipped and the job still reports success, so the `ci` gate needs no
+      # special case. (A workflow-level `paths:` filter would instead leave a
+      # required check waiting forever on pull requests that touch only the backend.)
+      #
+      # Anything this cannot diff reliably (a manual run, a new branch, a force
+      # push, act) runs the full job rather than risk a false green.
+      - name: Check for Storybook-relevant changes
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT" in
+            pull_request) range="HEAD^1 HEAD" ;;
+            push)
+              if [ -n "$BEFORE" ] && [ "${BEFORE//0/}" != "" ] \
+                && git fetch --quiet --depth=1 origin "$BEFORE" 2>/dev/null; then
+                range="$BEFORE HEAD"
+              fi ;;
+          esac
+
+          if [ -z "${range:-}" ] || [ -n "${ACT:-}" ]; then
+            echo "Cannot diff this event; running the full job."
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Everything under frontend/ except the jsdom unit tests, plus the
+          # toolchain pins and this workflow.
+          relevant=$(git diff --name-only $range \
+            | grep -E '^frontend/|^\.mise\.toml$|^\.github/workflows/ci\.yml$' \
+            | grep -vE '\.test\.tsx?$' || true)
+
+          if [ -n "$relevant" ]; then
+            echo "Storybook-relevant changes:"
+            echo "$relevant"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No Storybook-relevant changes; skipping the remaining steps."
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up mise
+        if: steps.changes.outputs.relevant == 'true'
+        uses: jdx/mise-action@v4.3.0
+        with:
+          cache: ${{ !env.ACT }}
+
+      - name: Cache npm downloads
+        if: steps.changes.outputs.relevant == 'true' && !env.ACT
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.changes.outputs.relevant == 'true'
+        run: npm ci
+        working-directory: frontend
+
+      # Use the Chrome that ships with the hosted runner image when there is one,
+      # so nothing is downloaded. NOTE: that is a different browser from the one
+      # Playwright pins (and from what `mise run frontend:storybook:browsers`
+      # installs locally), and it changes whenever GitHub updates the image. If a
+      # story passes locally but fails here, compare the version printed below with
+      # your local one first.
+      #
+      # Without a preinstalled Chrome (act, or a future image) it falls back to
+      # Playwright's headless shell (about 100 MB, a few seconds). `--with-deps` is
+      # added only under act, whose slimmer image may lack the system libraries.
+      - name: Find or install Chromium
+        id: browser
+        if: steps.changes.outputs.relevant == 'true'
+        timeout-minutes: 3
+        working-directory: frontend
+        run: |
+          if chrome=$(command -v google-chrome || command -v google-chrome-stable); then
+            echo "Using the runner's preinstalled Chrome at $chrome"
+            "$chrome" --version
+            echo "path=$chrome" >> "$GITHUB_OUTPUT"
+          else
+            echo "No preinstalled Chrome; installing Playwright's headless shell."
+            npx playwright install --only-shell ${{ env.ACT && '--with-deps' || '' }} chromium
+            echo "Using $(npx playwright --version)'s headless shell:"
+            ls "${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}" | grep headless
+          fi
+
+      # Every story is rendered as a test, and the play functions are run.
+      # CHROME_PATH is read by vitest.config.ts; empty means Playwright's own build.
+      - name: Story tests
+        if: steps.changes.outputs.relevant == 'true'
+        timeout-minutes: 5
+        env:
+          CHROME_PATH: ${{ steps.browser.outputs.path }}
+        run: mise run frontend:storybook:test
+
+      - name: Build Storybook
+        if: steps.changes.outputs.relevant == 'true'
+        timeout-minutes: 5
+        run: mise run frontend:storybook:build
+
   manifests:
     name: Manifests
     runs-on: ubuntu-latest
@@ -154,13 +271,15 @@ jobs:
   ci:
     name: CI
     runs-on: ubuntu-latest
-    needs: [backend, frontend, manifests, container]
+    needs: [backend, frontend, storybook, manifests, container]
     if: always()
+    timeout-minutes: 5
     steps:
       - name: Check results
         run: |
           echo "backend=${{ needs.backend.result }}"
           echo "frontend=${{ needs.frontend.result }}"
+          echo "storybook=${{ needs.storybook.result }}"
           echo "manifests=${{ needs.manifests.result }}"
           echo "container=${{ needs.container.result }}"
 
@@ -169,6 +288,7 @@ jobs:
           for result in \
             "${{ needs.backend.result }}" \
             "${{ needs.frontend.result }}" \
+            "${{ needs.storybook.result }}" \
             "${{ needs.manifests.result }}" \
             "${{ needs.container.result }}"
           do

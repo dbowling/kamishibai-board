@@ -33,7 +33,7 @@ depends = ["backend:deps", "frontend:deps"]
 
 [tasks.test]
 description = "Run the full test suite (backend + frontend)"
-depends = ["backend:test", "frontend:test"]
+depends = ["backend:test", "frontend:test", "frontend:storybook:test"]
 
 [tasks.lint]
 description = "Vet/lint both workspaces"
@@ -41,7 +41,7 @@ depends = ["backend:vet", "frontend:lint"]
 
 [tasks.check]
 description = "Everything CI runs: lint + tests + builds"
-depends = ["lint", "test", "build"]
+depends = ["lint", "test", "build", "frontend:storybook:build"]
 
 [tasks.build]
 description = "Build production artifacts for both workspaces"
@@ -163,6 +163,26 @@ run = "npm run test"
 description = "Typecheck the frontend"
 dir = "frontend"
 run = "npm run lint"
+
+[tasks."frontend:storybook"]
+description = "Start Storybook on http://localhost:6006"
+dir = "frontend"
+run = "npm run storybook"
+
+[tasks."frontend:storybook:build"]
+description = "Build Storybook as a static site into frontend/storybook-static"
+dir = "frontend"
+run = "npm run build-storybook"
+
+[tasks."frontend:storybook:test"]
+description = "Render every story in headless Chromium and run the play functions"
+dir = "frontend"
+run = "npm run test:storybook"
+
+[tasks."frontend:storybook:browsers"]
+description = "Install the headless Chromium the story tests use (once per machine, and after a Playwright upgrade)"
+dir = "frontend"
+run = "npx playwright install --only-shell chromium"
 
 # ---------------------------------------------------------------------------
 # Container and deployment
