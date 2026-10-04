@@ -373,6 +373,13 @@ Two story parameters drive the app's context:
 | `auth` | `'user'` (default), `'admin'`, `'signedOut'` | Who the auth store holds before the story renders |
 | `route` | e.g. `'/boards/b1/report'` | The URL the app's router sees; restored afterwards |
 
+The fake backend implements the sidebar-management methods too (`createTeam`,
+`moveBoard`, `saveOrder` and so on) and mirrors the server's refusals, so stories
+can create, archive, restore and move for real. Fixtures include an archived team
+(`t3`) and an archived board (`b4`). Drag and drop is tested from the keyboard
+(focus a handle, Space, arrow, Space) because it is reliable in the browser runner;
+the ordering rules themselves are unit tested in `src/nav/order.test.ts`.
+
 Fixtures use fixed 2026 dates and periods that have already ended, so nothing
 depends on the clock and the board never schedules a refetch.
 

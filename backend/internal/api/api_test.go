@@ -603,19 +603,17 @@ func TestCardCanBeCreatedWithoutSupplyingTeam(t *testing.T) {
 	}
 }
 
-// Members can create boards for their own team, but not for anybody else's.
-func TestBoardCreationIsScopedToOwnTeams(t *testing.T) {
+// Boards are sidebar structure, so members can no longer create them, even for
+// their own team. Admins can.
+func TestOnlyAdminsCanCreateBoards(t *testing.T) {
 	f := newFixture(t)
 
 	res := f.client.POST(t, "/api/collections/boards/records", f.memberToken, map[string]any{
 		schema.FieldTeam: f.team.Id,
 		schema.FieldName: "My New Board",
 	})
-	if res.Status != http.StatusOK && res.Status != http.StatusCreated {
-		t.Fatalf("member creating a board on their own team = %d, want success: %s", res.Status, res.Body)
-	}
-	if got, _ := res.Map(t)[schema.FieldCreatedBy].(string); got != f.member.Id {
-		t.Errorf("created_by = %q, want %q", got, f.member.Id)
+	if res.Status == http.StatusOK || res.Status == http.StatusCreated {
+		t.Errorf("member created a board on their own team (%d)", res.Status)
 	}
 
 	res = f.client.POST(t, "/api/collections/boards/records", f.memberToken, map[string]any{
@@ -624,6 +622,17 @@ func TestBoardCreationIsScopedToOwnTeams(t *testing.T) {
 	})
 	if res.Status == http.StatusOK || res.Status == http.StatusCreated {
 		t.Errorf("member created a board on another team (%d)", res.Status)
+	}
+
+	res = f.client.POST(t, "/api/collections/boards/records", f.adminToken, map[string]any{
+		schema.FieldTeam: f.team.Id,
+		schema.FieldName: "Admin Board",
+	})
+	if res.Status != http.StatusOK && res.Status != http.StatusCreated {
+		t.Fatalf("admin creating a board = %d, want success: %s", res.Status, res.Body)
+	}
+	if got, _ := res.Map(t)[schema.FieldCreatedBy].(string); got != f.admin.Id {
+		t.Errorf("created_by = %q, want %q", got, f.admin.Id)
 	}
 }
 

@@ -30,6 +30,7 @@ Full documentation is in [`docs/`](docs/README.md).
 | [Schema and migrations](docs/schema-and-migrations.md) | Changing the database safely |
 | [Testing](docs/testing.md) | Test suites, fixtures, helpers, testing time |
 | [Permissions](docs/permissions.md) | Who can do what, and the three layers enforcing it |
+| [Managing the sidebar](docs/sidebar.md) | Admin guide to teams, boards, ordering and moves |
 | [Scheduling and time](docs/scheduling.md) | Periods, flipping, rollups, timezones, DST |
 | [Realtime](docs/realtime.md) | How a teammate's click reaches your screen, from first principles |
 | [CI](docs/ci.md) | The GitHub Actions workflow, and running it locally with act |

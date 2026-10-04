@@ -7,7 +7,8 @@
 //
 //   - a user cannot promote themselves to admin
 //   - a card's team is always derived from its board, never taken from the client
-//   - nothing moves between teams, which would orphan its history
+//   - nothing moves between teams through the collection API, which would orphan
+//     its history; admins move boards through internal/navigation instead
 //   - created_by is stamped by the server and then immutable
 //   - archiving stamps who did it; restoring is admin-only
 package hooks
@@ -200,7 +201,13 @@ func requireWritableTeam(e *core.RecordRequestEvent, teamID string) error {
 //
 // Occurrences carry a denormalised team, and rollups are aggregated per team.
 // Moving a board or card after the fact would leave that history attributed to
-// the wrong tenant, so it is refused outright rather than attempting a rewrite.
+// the wrong tenant, so a plain PATCH is refused outright, admins included.
+//
+// The one sanctioned path is POST /api/kamishibai/boards/{boardId}/move
+// (internal/navigation.MoveBoard), which re-points the board, its cards,
+// occurrences and rollups in a single transaction. It saves through the app, not
+// a request, so it does not pass through this hook. Cards cannot move on their
+// own at all.
 func forbidTeamChange(e *core.RecordRequestEvent) error {
 	if e.HasSuperuserAuth() {
 		return nil
@@ -231,10 +238,12 @@ func preserveCreatedBy(e *core.RecordRequestEvent) {
 
 // guardArchiveTransition implements the archive/restore policy.
 //
-// Archiving is something any team member can do to tidy their own board.
-// Restoring is reserved for admins, which is the asymmetry the requirement
-// describes: things can be put away by anyone but only brought back by an admin.
-// It also owns the archived_by column so a client cannot attribute an archival to
+// Cards can be archived by any team member to tidy their own board. Teams and
+// boards can only be updated by admins in the first place (their update rules are
+// AdminOnly), so for those the archive is admin-only by virtue of the rule, not
+// of this hook. Restoring is reserved for admins everywhere, which keeps the
+// asymmetry the requirement describes for cards: things can be put away by
+// anyone but only brought back by an admin. It also owns the archived_by column so a client cannot attribute an archival to
 // someone else.
 func guardArchiveTransition(e *core.RecordRequestEvent) error {
 	if e.HasSuperuserAuth() {

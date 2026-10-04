@@ -261,3 +261,21 @@ func newStateDTO(state occurrence.State, users map[string]*core.Record) stateDTO
 
 	return dto
 }
+
+// moveBoardRequest is the body of the board move endpoint.
+type moveBoardRequest struct {
+	Team string `json:"team"`
+}
+
+// moveBoardResponse reports how much history travelled with the board.
+type moveBoardResponse struct {
+	BoardID string         `json:"boardId"`
+	TeamID  string         `json:"teamId"`
+	Moved   movedCountsDTO `json:"moved"`
+}
+
+type movedCountsDTO struct {
+	Cards       int `json:"cards"`
+	Occurrences int `json:"occurrences"`
+	Rollups     int `json:"rollups"`
+}

@@ -32,8 +32,17 @@ export const AVERY: UserRef = {
 };
 
 export const TEAMS: TeamRecord[] = [
-  { id: 't1', name: 'Platform', description: '', members: [USERS.dana.id], archived_at: '' },
-  { id: 't2', name: 'Support', description: '', members: [USERS.dana.id], archived_at: '' },
+  { id: 't1', name: 'Platform', description: '', members: [USERS.dana.id], sort_order: 1, archived_at: '' },
+  { id: 't2', name: 'Support', description: '', members: [USERS.dana.id], sort_order: 2, archived_at: '' },
+  // Archived: never in the sidebar, only under "Archived" while an admin edits it.
+  {
+    id: 't3',
+    name: 'Legacy',
+    description: '',
+    members: [],
+    sort_order: 3,
+    archived_at: '2026-08-01 00:00:00.000Z',
+  },
 ];
 
 export const BOARDS_BY_TEAM: Record<string, BoardRecord[]> = {
@@ -47,8 +56,17 @@ export const BOARDS_BY_TEAM: Record<string, BoardRecord[]> = {
       archived_at: '',
     },
     { id: 'b2', team: 't1', name: 'Security checks', description: '', sort_order: 2, archived_at: '' },
+    {
+      id: 'b4',
+      team: 't1',
+      name: 'Retired checks',
+      description: '',
+      sort_order: 3,
+      archived_at: '2026-08-01 00:00:00.000Z',
+    },
   ],
   t2: [{ id: 'b3', team: 't2', name: 'Support rota', description: '', sort_order: 1, archived_at: '' }],
+  t3: [{ id: 'b5', team: 't3', name: 'Old rota', description: '', sort_order: 1, archived_at: '' }],
 };
 
 export const BOARD: Board = {

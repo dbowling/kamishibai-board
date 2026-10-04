@@ -485,3 +485,45 @@ func equalFold(a, b string) bool {
 	}
 	return true
 }
+
+// Teams get an explicit order so the seeded sidebar is stable, and reseeding must
+// not disturb it.
+func TestSeedOrdersTeamsAndIsStableOnReseed(t *testing.T) {
+	app := testutil.NewApp(t)
+
+	orders := func() map[string]int {
+		out := map[string]int{}
+		teams, err := app.FindAllRecords(schema.Teams)
+		if err != nil {
+			t.Fatalf("list teams: %v", err)
+		}
+		for _, team := range teams {
+			out[team.GetString(schema.FieldName)] = team.GetInt(schema.FieldSortOrder)
+		}
+		return out
+	}
+
+	if _, err := newSeeder(0).Run(app); err != nil {
+		t.Fatalf("first seed: %v", err)
+	}
+	first := orders()
+	if len(first) < 2 {
+		t.Fatalf("expected at least two teams, got %v", first)
+	}
+	seen := map[int]bool{}
+	for name, order := range first {
+		if order == 0 || seen[order] {
+			t.Errorf("team %q has sort_order %d, want distinct non-zero values (%v)", name, order, first)
+		}
+		seen[order] = true
+	}
+
+	if _, err := newSeeder(0).Run(app); err != nil {
+		t.Fatalf("second seed: %v", err)
+	}
+	for name, order := range orders() {
+		if first[name] != order {
+			t.Errorf("reseed changed %q sort_order from %d to %d", name, first[name], order)
+		}
+	}
+}

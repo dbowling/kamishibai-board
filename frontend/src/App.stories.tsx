@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, mocked, within } from 'storybook/test';
+import { expect, mocked, waitFor, within } from 'storybook/test';
 import { api } from './lib/api';
 import { App } from './App';
 import { failure } from './stories/fakeBackend';
@@ -88,5 +88,81 @@ export const NotFound: Story = {
   parameters: { route: '/nope' },
   play: async ({ canvas }) => {
     await expect(await canvas.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
+  },
+};
+
+export const NonAdminHasNoEditButton: Story = {
+  parameters: { route: '/boards/b1' },
+  play: async ({ canvas }) => {
+    const sidebar = await canvas.findByRole('navigation', { name: 'Boards' });
+    await expect(await within(sidebar).findByRole('link', { name: 'Security checks' })).toBeInTheDocument();
+    await expect(within(sidebar).queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+  },
+};
+
+export const AdminCreatesBoard: Story = {
+  parameters: { auth: 'admin', route: '/boards/b1' },
+  play: async ({ canvas, userEvent }) => {
+    const sidebar = await canvas.findByRole('navigation', { name: 'Boards' });
+    await userEvent.click(await within(sidebar).findByRole('button', { name: 'Edit' }));
+    await userEvent.click(await within(sidebar).findByRole('button', { name: 'Add board to Support' }));
+
+    const dialog = await canvas.findByRole('dialog', { name: 'New board in Support' });
+    await userEvent.type(within(dialog).getByLabelText(/^Name/), 'Escalations');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create board' }));
+
+    await expect(await within(sidebar).findByText('Escalations')).toBeInTheDocument();
+    await expect(canvas.queryByRole('dialog')).not.toBeInTheDocument();
+  },
+};
+
+export const AdminRestoresBoard: Story = {
+  parameters: { auth: 'admin', route: '/boards/b1' },
+  play: async ({ canvas, userEvent }) => {
+    const sidebar = await canvas.findByRole('navigation', { name: 'Boards' });
+    await userEvent.click(await within(sidebar).findByRole('button', { name: 'Edit' }));
+    await userEvent.click(await within(sidebar).findByText('Archived'));
+    await userEvent.click(await within(sidebar).findByRole('button', { name: 'Restore board Retired checks' }));
+
+    // Back in the active list for team Platform, and gone from Archived.
+    await waitFor(() =>
+      expect(within(sidebar).queryByRole('button', { name: 'Restore board Retired checks' })).not.toBeInTheDocument(),
+    );
+    await expect(
+      await within(sidebar).findByRole('button', { name: 'Edit board Retired checks' }),
+    ).toBeInTheDocument();
+  },
+};
+
+export const AdminArchivesOpenBoard: Story = {
+  parameters: { auth: 'admin', route: '/boards/b2' },
+  play: async ({ canvas, userEvent }) => {
+    const sidebar = await canvas.findByRole('navigation', { name: 'Boards' });
+    await userEvent.click(await within(sidebar).findByRole('button', { name: 'Edit' }));
+    await userEvent.click(await within(sidebar).findByRole('button', { name: 'Archive board Security checks' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Archive board' }));
+
+    // The open board vanished, so the app goes home and lands on the first board.
+    await waitFor(() => expect(location.pathname).toBe('/boards/b1'));
+  },
+};
+
+export const AdminMovesBoardWithDialog: Story = {
+  parameters: { auth: 'admin', route: '/boards/b1' },
+  play: async ({ canvas, userEvent }) => {
+    const sidebar = await canvas.findByRole('navigation', { name: 'Boards' });
+    await userEvent.click(await within(sidebar).findByRole('button', { name: 'Edit' }));
+    await userEvent.click(await within(sidebar).findByRole('button', { name: 'Edit board Security checks' }));
+
+    const dialog = await canvas.findByRole('dialog', { name: 'Edit board' });
+    await userEvent.selectOptions(within(dialog).getByLabelText(/^Team/), 't2');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
+
+    const confirm = await canvas.findByRole('alertdialog', { name: 'Move Security checks to Support?' });
+    await expect(confirm).toHaveTextContent('cards and history move with it');
+    await userEvent.click(within(confirm).getByRole('button', { name: 'Move board' }));
+
+    await waitFor(() => expect(api.moveBoard).toHaveBeenCalledWith('b2', 't2'));
+    await waitFor(() => expect(api.saveOrder).toHaveBeenCalledWith({ boards: { t2: ['b3', 'b2'] } }));
   },
 };

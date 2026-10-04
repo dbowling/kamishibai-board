@@ -85,6 +85,7 @@ frontend/
     lib/               pocketbase client, types, api wrapper, pure helpers
     auth/              auth context and the sign-in screen
     boards/            the board, cards, card detail, new-card form
+    nav/               the sidebar and its admin editor (drag and drop, dialogs)
     reports/           completion history tables and the Heat.js activity heatmap
     stories/           fixtures and the in-memory fake backend used by stories
   .storybook/          Storybook config (stories live next to their components)

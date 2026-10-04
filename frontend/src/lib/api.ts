@@ -5,7 +5,9 @@ import type {
   BoardState,
   Cadence,
   CurrentPeriods,
+  MoveBoardResult,
   MutationResult,
+  NavigationOrder,
   Report,
   TeamRecord,
 } from './types';
@@ -72,25 +74,99 @@ export const api = {
     return mutate(cardId, 'reopen', notes);
   },
 
-  /** Teams the signed-in user can see. Admins see all of them. */
+  /**
+   * Teams the signed-in user can see, in sidebar order. Admins see all of them,
+   * archived ones included: callers filter on `archived_at`.
+   */
   teams(): Promise<TeamRecord[]> {
-    return pb.collection('teams').getFullList<TeamRecord>({ sort: 'name' });
+    return pb.collection('teams').getFullList<TeamRecord>({ sort: 'sort_order,name' });
   },
 
-  /** Active boards for a team. */
-  boards(teamId: string): Promise<BoardRecord[]> {
-    return pb.collection('boards').getFullList<BoardRecord>({
-      filter: pb.filter('team = {:team} && archived_at = ""', { team: teamId }),
-      sort: 'sort_order,name',
+  /** Active boards for a team, or every board (archived too) with `includeArchived`. */
+  boards(teamId: string, options?: { includeArchived?: boolean }): Promise<BoardRecord[]> {
+    const filter = options?.includeArchived
+      ? pb.filter('team = {:team}', { team: teamId })
+      : pb.filter('team = {:team} && archived_at = ""', { team: teamId });
+    return pb.collection('boards').getFullList<BoardRecord>({ filter, sort: 'sort_order,name' });
+  },
+
+  // The calls below are admin-only on the server. The sidebar editor is the only
+  // caller and is itself admin-only, but the server is what actually enforces it.
+
+  /** Create a team. `sortOrder` places it in the sidebar (omit for the default). */
+  createTeam(name: string, description: string, sortOrder?: number): Promise<TeamRecord> {
+    return pb.collection('teams').create<TeamRecord>({
+      name,
+      description,
+      ...(sortOrder === undefined ? {} : { sort_order: sortOrder }),
     });
   },
 
-  createBoard(teamId: string, name: string, description: string): Promise<BoardRecord> {
+  updateTeam(id: string, input: { name: string; description: string }): Promise<TeamRecord> {
+    return pb.collection('teams').update<TeamRecord>(id, {
+      name: input.name,
+      description: input.description,
+    });
+  },
+
+  /** Archive a team. Its boards stay as they are and reappear if it is restored. */
+  archiveTeam(id: string): Promise<unknown> {
+    return pb.collection('teams').update(id, { archived_at: archivedStamp() });
+  },
+
+  restoreTeam(id: string): Promise<unknown> {
+    return pb.collection('teams').update(id, { archived_at: '' });
+  },
+
+  /** Create a board. `sortOrder` should place it after the team's other boards. */
+  createBoard(
+    teamId: string,
+    name: string,
+    description: string,
+    sortOrder?: number,
+  ): Promise<BoardRecord> {
     return pb.collection('boards').create<BoardRecord>({
       team: teamId,
       name,
       description,
+      ...(sortOrder === undefined ? {} : { sort_order: sortOrder }),
     });
+  },
+
+  /** Rename or re-describe a board. `team` is not sent: use moveBoard. */
+  updateBoard(id: string, input: { name: string; description: string }): Promise<BoardRecord> {
+    return pb.collection('boards').update<BoardRecord>(id, {
+      name: input.name,
+      description: input.description,
+    });
+  },
+
+  archiveBoard(id: string): Promise<unknown> {
+    return pb.collection('boards').update(id, { archived_at: archivedStamp() });
+  },
+
+  restoreBoard(id: string): Promise<unknown> {
+    return pb.collection('boards').update(id, { archived_at: '' });
+  },
+
+  /**
+   * Move a board, and everything recorded against it, to another team.
+   *
+   * This is an endpoint rather than a PATCH of `team` because the board's cards,
+   * occurrences and rollups each carry their own copy of the team id, and all of
+   * them have to change in one transaction. The generic update refuses a team
+   * change for exactly that reason.
+   */
+  moveBoard(boardId: string, teamId: string): Promise<MoveBoardResult> {
+    return pb.send<MoveBoardResult>(
+      `/api/kamishibai/boards/${encodeURIComponent(boardId)}/move`,
+      { method: 'POST', body: { team: teamId } },
+    );
+  },
+
+  /** Persist sidebar order: sort_order becomes each id's index in its array. */
+  saveOrder(order: NavigationOrder): Promise<unknown> {
+    return pb.send('/api/kamishibai/navigation/order', { method: 'POST', body: order });
   },
 
   /**
@@ -124,7 +200,7 @@ export const api = {
   /** Archive a card. Any team member may do this. */
   archiveCard(cardId: string): Promise<unknown> {
     return pb.collection('cards').update(cardId, {
-      archived_at: new Date().toISOString().replace('T', ' ').replace('Z', 'Z'),
+      archived_at: archivedStamp(),
     });
   },
 
@@ -133,6 +209,11 @@ export const api = {
     return pb.collection('cards').update(cardId, { archived_at: '' });
   },
 };
+
+/** The timestamp format PocketBase date fields accept ("2026-09-15 12:00:00.000Z"). */
+function archivedStamp(): string {
+  return new Date().toISOString().replace('T', ' ');
+}
 
 function mutate(cardId: string, action: string, notes?: string): Promise<MutationResult> {
   return pb.send<MutationResult>(

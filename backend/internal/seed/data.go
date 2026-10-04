@@ -22,6 +22,7 @@ type teamSpec struct {
 	Name        string
 	Description string
 	MemberEmail []string
+	SortOrder   int
 }
 
 type boardSpec struct {
@@ -82,11 +83,13 @@ func demoTeams() []teamSpec {
 			Description: "Owns the clusters, pipelines and shared infrastructure.",
 			// Dana and Raj are on both teams, which exercises multi-team membership.
 			MemberEmail: []string{"dana@example.test", "raj@example.test", "mei@example.test"},
+			SortOrder:   1,
 		},
 		{
 			Name:        teamSecurity,
 			Description: "Handles vulnerability response and access reviews.",
 			MemberEmail: []string{"dana@example.test", "raj@example.test", "sam@example.test"},
+			SortOrder:   2,
 		},
 	}
 }
