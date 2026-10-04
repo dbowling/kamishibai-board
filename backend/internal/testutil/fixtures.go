@@ -2,7 +2,9 @@ package testutil
 
 import (
 	"testing"
+	"time"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/types"
 
@@ -112,6 +114,40 @@ func Archive(t testing.TB, app core.App, record *core.Record, by *core.Record) {
 	if err := app.Save(record); err != nil {
 		t.Fatalf("archive %s/%s: %v", record.Collection().Name, record.Id, err)
 	}
+}
+
+// Backdate sets a record's created timestamp. PocketBase's autodate field
+// overwrites created on every Save, so the column is written directly. Use it
+// to arrange records that existed before a pinned period instead of relying on
+// the real wall clock.
+func Backdate(t testing.TB, app core.App, record *core.Record, created time.Time) {
+	t.Helper()
+	setDateColumn(t, app, record, schema.FieldCreated, created)
+}
+
+// BackdateArchived sets a record's archived_at timestamp, for the same reason
+// as Backdate: Archive stamps the real wall clock.
+func BackdateArchived(t testing.TB, app core.App, record *core.Record, archivedAt time.Time) {
+	t.Helper()
+	setDateColumn(t, app, record, schema.FieldArchivedAt, archivedAt)
+}
+
+func setDateColumn(t testing.TB, app core.App, record *core.Record, field string, ts time.Time) {
+	t.Helper()
+
+	value, err := types.ParseDateTime(ts)
+	if err != nil {
+		t.Fatalf("parse %s time: %v", field, err)
+	}
+
+	name := record.Collection().Name
+	_, err = app.DB().
+		Update(name, dbx.Params{field: value.String()}, dbx.HashExp{"id": record.Id}).
+		Execute()
+	if err != nil {
+		t.Fatalf("set %s on %s/%s: %v", field, name, record.Id, err)
+	}
+	record.Set(field, value)
 }
 
 // CountRecords returns the number of rows in a collection, failing the test on

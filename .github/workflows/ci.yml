@@ -129,6 +129,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
+      # Only needed for the `mise run` wrapper; the build itself happens inside
+      # Docker with the toolchains the Dockerfile pins.
+      - name: Set up mise
+        if: ${{ !env.ACT }}
+        uses: jdx/mise-action@v4.3.0
+
       # The Dockerfile runs `go vet` and `go test` inside the build, so this
       # validates the artifact that would actually ship, not just the source.
       # Deliberately skipped under act: it needs the host Docker daemon, which

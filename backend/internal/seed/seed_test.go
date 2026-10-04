@@ -2,6 +2,7 @@ package seed_test
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"testing"
 	"time"
@@ -311,6 +312,69 @@ func TestSeedProducesRollups(t *testing.T) {
 	}
 	if n := testutil.CountRecords(t, app, schema.Rollups); n == 0 {
 		t.Error("no rollup rows were written")
+	}
+
+	// Every stored snapshot must be internally coherent. In particular the
+	// denominator must be non-zero: seeded cards have to predate the history
+	// invented for them, or Compute (which only counts cards created before a
+	// period ends) reports total_cards = 0 for every historical period.
+	rollups, err := app.FindAllRecords(schema.Rollups)
+	if err != nil {
+		t.Fatalf("list rollups: %v", err)
+	}
+	for _, r := range rollups {
+		total := r.GetInt(schema.FieldTotalCards)
+		done := r.GetInt(schema.FieldDoneCount)
+		inProgress := r.GetInt(schema.FieldInProgressCount)
+		notStarted := r.GetInt(schema.FieldNotStartedCount)
+
+		if total <= 0 {
+			t.Errorf("rollup %s has total_cards = %d, want > 0", r.Id, total)
+			continue
+		}
+		if done+inProgress+notStarted != total {
+			t.Errorf("rollup %s: done %d + in_progress %d + not_started %d != total %d",
+				r.Id, done, inProgress, notStarted, total)
+		}
+		want := float64(done) / float64(total)
+		if got := r.GetFloat(schema.FieldCompletionRate); math.Abs(got-want) > 1e-6 {
+			t.Errorf("rollup %s: completion_rate = %v, want %v (done/total)", r.Id, got, want)
+		}
+	}
+}
+
+// Cards must be backdated to before the history invented for them, so reports see
+// them as existing during those periods.
+func TestSeededCardsPredateTheirHistory(t *testing.T) {
+	app := testutil.NewApp(t)
+	const periods = 15
+	if _, err := newSeeder(periods).Run(app); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	cal := config.Default().Calendar
+	now := frozenClock()()
+
+	cards, err := app.FindAllRecords(schema.Cards)
+	if err != nil {
+		t.Fatalf("list cards: %v", err)
+	}
+	if len(cards) == 0 {
+		t.Fatal("no cards were seeded")
+	}
+	for _, card := range cards {
+		cadence := domain.Cadence(card.GetString(schema.FieldCadence))
+		closed, err := cal.ClosedBefore(cadence, now, periods)
+		if err != nil || len(closed) == 0 {
+			t.Fatalf("closed periods for %s: %v", cadence, err)
+		}
+		earliest := closed[len(closed)-1] // ClosedBefore is newest first
+
+		created := card.GetDateTime(schema.FieldCreated).Time()
+		if created.After(earliest.Start) {
+			t.Errorf("card %q created %s is after its earliest history period starts (%s)",
+				card.GetString(schema.FieldTitle), created, earliest.Start)
+		}
 	}
 }
 
