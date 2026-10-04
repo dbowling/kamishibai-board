@@ -1,11 +1,15 @@
 // An in-memory stand-in for the backend, wired onto the mocked `api`.
 //
-// .storybook/preview.tsx mocks src/lib/api.ts in spy mode, so each method is a
-// real spy that a story (or this file) can give an implementation. The preview
-// installs the default backend before every story; a story that needs something
-// different calls installFakeBackend(seed) or mocks one method in its own
-// beforeEach, which runs afterwards and so wins.
-import { mocked } from 'storybook/test';
+// .storybook/preview.tsx mocks src/lib/api.ts in spy mode. Under Vitest that
+// leaves every method a mock for good. In the Storybook dev server it does not:
+// `api` is an object rather than a set of top-level exports, so its methods are
+// ordinary spies, and Storybook restores those to the real functions before every
+// story. stub() covers both, reusing the mock when there is one and spying on the
+// method again when there is not. The preview installs the default backend before
+// every story; a story that needs something different calls
+// installFakeBackend(seed) or mocks one method in its own beforeEach with
+// mocked(api.x), which runs afterwards and so wins.
+import { isMockFunction, mocked, spyOn } from 'storybook/test';
 import { api } from '../lib/api';
 import type {
   ActivityDay,
@@ -80,6 +84,12 @@ export function failure(message: string): Promise<never> {
   return Promise.reject({ response: { message } });
 }
 
+type Api = typeof api;
+
+function stub<K extends keyof Api>(method: K) {
+  return isMockFunction(api[method]) ? mocked(api[method]) : spyOn(api, method);
+}
+
 function notFound(): Promise<never> {
   return failure('The requested resource wasn’t found.');
 }
@@ -123,7 +133,7 @@ export function installFakeBackend(seed: Seed = defaultSeed()) {
       return { cardId, period: card.period, state: card.state };
     };
 
-  mocked(api.currentPeriods).mockImplementation(
+  stub('currentPeriods').mockImplementation(
     async (): Promise<CurrentPeriods> => ({
       timezone: TIMEZONE,
       serverAt: SERVER_AT,
@@ -131,11 +141,11 @@ export function installFakeBackend(seed: Seed = defaultSeed()) {
     }),
   );
 
-  mocked(api.teams).mockImplementation(async () => db.teams);
+  stub('teams').mockImplementation(async () => db.teams);
 
-  mocked(api.boards).mockImplementation(async (teamId) => db.boardsByTeam[teamId] ?? []);
+  stub('boards').mockImplementation(async (teamId) => db.boardsByTeam[teamId] ?? []);
 
-  mocked(api.boardState).mockImplementation(async (boardId, options): Promise<BoardState> => {
+  stub('boardState').mockImplementation(async (boardId, options): Promise<BoardState> => {
     const entry = db.boards[boardId];
     if (!entry) return notFound();
     const cards = options?.includeArchived
@@ -144,24 +154,24 @@ export function installFakeBackend(seed: Seed = defaultSeed()) {
     return makeBoardState(cards, entry.board);
   });
 
-  mocked(api.report).mockImplementation(async (boardId, cadence): Promise<Report> => {
+  stub('report').mockImplementation(async (boardId, cadence): Promise<Report> => {
     const entry = db.boards[boardId];
     if (!entry) return notFound();
     const report = db.reports[cadence] ?? { ...REPORT_WEEKLY, cadence };
     return { ...report, board: entry.board };
   });
 
-  mocked(api.activity).mockImplementation(async (boardId) => {
+  stub('activity').mockImplementation(async (boardId) => {
     const entry = db.boards[boardId];
     if (!entry) return notFound();
     return makeActivity(entry.board, entry.activity);
   });
 
-  mocked(api.start).mockImplementation(transition('start'));
-  mocked(api.complete).mockImplementation(transition('complete'));
-  mocked(api.reopen).mockImplementation(transition('reopen'));
+  stub('start').mockImplementation(transition('start'));
+  stub('complete').mockImplementation(transition('complete'));
+  stub('reopen').mockImplementation(transition('reopen'));
 
-  mocked(api.archiveCard).mockImplementation(async (cardId) => {
+  stub('archiveCard').mockImplementation(async (cardId) => {
     const card = find(cardId);
     if (!card) return notFound();
     card.archived = true;
@@ -169,7 +179,7 @@ export function installFakeBackend(seed: Seed = defaultSeed()) {
     return card;
   });
 
-  mocked(api.restoreCard).mockImplementation(async (cardId) => {
+  stub('restoreCard').mockImplementation(async (cardId) => {
     const card = find(cardId);
     if (!card) return notFound();
     card.archived = false;
@@ -177,7 +187,7 @@ export function installFakeBackend(seed: Seed = defaultSeed()) {
     return card;
   });
 
-  mocked(api.createCard).mockImplementation(async (input) => {
+  stub('createCard').mockImplementation(async (input) => {
     const entry = db.boards[input.boardId];
     if (!entry) return notFound();
     const id = `new${entry.cards.length + 1}`;
