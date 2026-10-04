@@ -383,15 +383,18 @@ the docs tab for the same reason.
 
 ### Browsers
 
-The runner uses Playwright's Chromium. `playwright` is pinned in `package.json`, so
-the browser build must match it:
+The runner uses Playwright's headless Chromium. `playwright` is pinned in
+`package.json`, and each Playwright release expects its own browser build, so
+install it once per machine and again after upgrading Playwright:
 
 ```bash
-mise run frontend:storybook:browsers     # npx playwright install chromium
+mise run frontend:storybook:browsers     # npx playwright install --only-shell chromium
 ```
 
-CI installs it with `npx playwright install --with-deps chromium`. If the tests time
-out connecting to the browser, this is the first thing to check.
+CI runs the same command (see [ci.md](ci.md)). If the tests time out connecting to
+the browser, a browser build that does not match the pinned Playwright is the first
+thing to check. Playwright 1.56 hangs while unpacking the browser on Node 26 (1.63
+does not), so check that combination before downgrading.
 
 ## Guidelines
 

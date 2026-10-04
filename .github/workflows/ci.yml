@@ -108,17 +108,66 @@ jobs:
   storybook:
     name: Storybook
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          # Two commits so a pull request's merge commit can be diffed against its
+          # base (its first parent) without fetching the whole history.
+          fetch-depth: 2
+
+      # Only frontend code and the files that decide how it is built or tested can
+      # change what a story renders. When none of them changed, the remaining steps
+      # are skipped and the job still reports success, so the `ci` gate needs no
+      # special case. (A workflow-level `paths:` filter would instead leave a
+      # required check waiting forever on pull requests that touch only the backend.)
+      #
+      # Anything this cannot diff reliably (a manual run, a new branch, a force
+      # push, act) runs the full job rather than risk a false green.
+      - name: Check for Storybook-relevant changes
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT" in
+            pull_request) range="HEAD^1 HEAD" ;;
+            push)
+              if [ -n "$BEFORE" ] && [ "${BEFORE//0/}" != "" ] \
+                && git fetch --quiet --depth=1 origin "$BEFORE" 2>/dev/null; then
+                range="$BEFORE HEAD"
+              fi ;;
+          esac
+
+          if [ -z "${range:-}" ] || [ -n "${ACT:-}" ]; then
+            echo "Cannot diff this event; running the full job."
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Everything under frontend/ except the jsdom unit tests, plus the
+          # toolchain pins and this workflow.
+          relevant=$(git diff --name-only $range \
+            | grep -E '^frontend/|^\.mise\.toml$|^\.github/workflows/ci\.yml$' \
+            | grep -vE '\.test\.tsx?$' || true)
+
+          if [ -n "$relevant" ]; then
+            echo "Storybook-relevant changes:"
+            echo "$relevant"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No Storybook-relevant changes; skipping the remaining steps."
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up mise
+        if: steps.changes.outputs.relevant == 'true'
         uses: jdx/mise-action@v4.3.0
         with:
           cache: ${{ !env.ACT }}
 
       - name: Cache npm downloads
-        if: ${{ !env.ACT }}
+        if: steps.changes.outputs.relevant == 'true' && !env.ACT
         uses: actions/cache@v6.1.0
         with:
           path: ~/.npm
@@ -126,22 +175,26 @@ jobs:
           restore-keys: npm-${{ runner.os }}-
 
       - name: Install dependencies
+        if: steps.changes.outputs.relevant == 'true'
         run: npm ci
         working-directory: frontend
 
-      # Installs the Chromium that matches the pinned Playwright version, plus the
-      # system libraries it needs. The browser download is not cached, following
-      # Playwright's own advice (restoring it takes about as long as fetching it),
-      # and installing as root keeps this working under act too.
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+      # Only the headless shell (about 100 MB, a few seconds): the tests never open
+      # a headed browser. The hosted runner image already carries Chromium's system
+      # libraries, so `--with-deps` (an apt update and install) is only added under
+      # act, whose slimmer image may lack them.
+      - name: Install headless Chromium
+        if: steps.changes.outputs.relevant == 'true'
+        run: npx playwright install --only-shell ${{ env.ACT && '--with-deps' || '' }} chromium
         working-directory: frontend
 
       # Every story is rendered as a test, and the play functions are run.
       - name: Story tests
+        if: steps.changes.outputs.relevant == 'true'
         run: mise run frontend:storybook:test
 
       - name: Build Storybook
+        if: steps.changes.outputs.relevant == 'true'
         run: mise run frontend:storybook:build
 
   manifests:

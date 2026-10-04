@@ -180,9 +180,9 @@ dir = "frontend"
 run = "npm run test:storybook"
 
 [tasks."frontend:storybook:browsers"]
-description = "Install the Chromium build the story tests use (once per machine)"
+description = "Install the headless Chromium the story tests use (once per machine, and after a Playwright upgrade)"
 dir = "frontend"
-run = "npx playwright install chromium"
+run = "npx playwright install --only-shell chromium"
 
 # ---------------------------------------------------------------------------
 # Container and deployment

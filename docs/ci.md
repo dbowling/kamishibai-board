@@ -13,7 +13,7 @@ Five jobs in parallel, then a gate.
 | --- | --- |
 | `backend` | `go vet`, `go test -race`, build the binary |
 | `frontend` | `npm ci`, typecheck, Vitest, build the bundle |
-| `storybook` | `npm ci`, install Chromium, render every story as a browser test, build Storybook |
+| `storybook` | When frontend files changed: `npm ci`, install headless Chromium, render every story as a browser test, build Storybook |
 | `manifests` | Render the Kubernetes manifests with kustomize |
 | `container` | Build the production image (which itself runs the Go tests) |
 | `ci` | Depends on all five; fails unless every one succeeded |
@@ -27,12 +27,26 @@ when a dependency was skipped, which is exactly when you least want a green tick
 
 ### Why Storybook is its own job
 
-The story tests need a real browser. Installing Chromium and its system libraries
-adds a minute or two and a large download, which the `frontend` job (typecheck,
-jsdom tests, build) does not otherwise pay for. A separate job keeps that quick
-feedback quick, runs the two in parallel, and shows up as its own failing check
-when a story breaks. It also builds Storybook, so a story that renders in the test
-runner but breaks the production build is still caught.
+The story tests need a real browser, which the `frontend` job (typecheck, jsdom
+tests, build) does not otherwise pay for. A separate job runs the two in parallel
+and shows up as its own failing check when a story breaks. It also builds
+Storybook, so a story that renders in the test runner but breaks the static build
+is still caught.
+
+Two things keep it cheap:
+
+- **It only does work when it matters.** Its first step diffs the commit against
+  its base and skips the remaining steps unless something under `frontend/` (other
+  than a `*.test.ts(x)` file), `.mise.toml` or this workflow changed. Skipped steps
+  still leave the job green, so the `ci` gate needs no special case. A
+  workflow-level `paths:` filter was deliberately not used: on a backend-only pull
+  request it would never report the check at all, and a required check that never
+  reports blocks the merge. Events it cannot diff reliably (a manual run, a new
+  branch, a force push, act) run the full job.
+- **It installs only the headless shell.** `npx playwright install --only-shell
+  chromium` fetches about 100 MB in a few seconds. The hosted runner image already
+  carries Chromium's system libraries, so `--with-deps` (an apt update and install)
+  is only added under act.
 
 ### Toolchains come from mise
 
