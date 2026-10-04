@@ -40,6 +40,16 @@ func (f *fixture) date(y int, m time.Month, d, hour int) time.Time {
 	return time.Date(y, m, d, hour, 0, 0, 0, f.cal.Location())
 }
 
+// card creates a card backdated to August 2026, before every period these tests
+// evaluate. Fixtures otherwise stamp created with the real wall clock, which
+// would make the card look newer than the pinned periods.
+func (f *fixture) card(t *testing.T, board *core.Record, title string, cadence domain.Cadence) *core.Record {
+	t.Helper()
+	rec := testutil.NewCard(t, f.app, board, title, cadence)
+	testutil.Backdate(t, f.app, rec, f.date(2026, time.August, 1, 9))
+	return rec
+}
+
 // occurrenceSvc returns a service whose clock is pinned to ts.
 func (f *fixture) occurrenceSvc(ts time.Time) *occurrence.Service {
 	return occurrence.NewService(f.cal).WithClock(func() time.Time { return ts })
@@ -68,13 +78,9 @@ func TestComputeDerivesNotStartedFromMissingRows(t *testing.T) {
 	f := newFixture(t)
 
 	// Three daily cards, created before the period under test.
-	created := f.date(2026, time.September, 1, 9)
-	svc := f.occurrenceSvc(created)
-	_ = svc
-
-	a := testutil.NewCard(t, f.app, f.board, "Check alerts", domain.Daily)
-	b := testutil.NewCard(t, f.app, f.board, "Verify backups", domain.Daily)
-	testutil.NewCard(t, f.app, f.board, "Review tickets", domain.Daily)
+	a := f.card(t, f.board, "Check alerts", domain.Daily)
+	b := f.card(t, f.board, "Verify backups", domain.Daily)
+	f.card(t, f.board, "Review tickets", domain.Daily)
 
 	// On the day itself: one done, one started, one untouched.
 	day := f.date(2026, time.September, 3, 10)
@@ -120,8 +126,8 @@ func TestComputeDerivesNotStartedFromMissingRows(t *testing.T) {
 func TestComputeAllDone(t *testing.T) {
 	f := newFixture(t)
 
-	a := testutil.NewCard(t, f.app, f.board, "A", domain.Daily)
-	b := testutil.NewCard(t, f.app, f.board, "B", domain.Daily)
+	a := f.card(t, f.board, "A", domain.Daily)
+	b := f.card(t, f.board, "B", domain.Daily)
 
 	day := f.date(2026, time.September, 3, 10)
 	svc := f.occurrenceSvc(day)
@@ -145,8 +151,8 @@ func TestComputeAllDone(t *testing.T) {
 
 func TestComputeNothingDone(t *testing.T) {
 	f := newFixture(t)
-	testutil.NewCard(t, f.app, f.board, "A", domain.Daily)
-	testutil.NewCard(t, f.app, f.board, "B", domain.Daily)
+	f.card(t, f.board, "A", domain.Daily)
+	f.card(t, f.board, "B", domain.Daily)
 
 	day := f.date(2026, time.September, 3, 10)
 	snap, err := f.rollupSvc(day).Compute(f.app, f.board, domain.Daily, f.period(t, domain.Daily, day))
@@ -171,13 +177,12 @@ func TestComputeExcludesCardsCreatedAfterThePeriod(t *testing.T) {
 	f := newFixture(t)
 
 	// The period under test is September 2026; the card is created in October.
-	// Fixtures stamp `created` with the real wall clock, so simulate this by
-	// evaluating an earlier period instead.
-	testutil.NewCard(t, f.app, f.board, "Added later", domain.Monthly)
+	card := testutil.NewCard(t, f.app, f.board, "Added later", domain.Monthly)
+	testutil.Backdate(t, f.app, card, f.date(2026, time.October, 5, 9))
 
-	past := f.date(2020, time.January, 15, 10)
-	snap, err := f.rollupSvc(f.date(2026, time.September, 3, 10)).
-		Compute(f.app, f.board, domain.Monthly, f.period(t, domain.Monthly, past))
+	september := f.date(2026, time.September, 15, 10)
+	snap, err := f.rollupSvc(f.date(2026, time.October, 10, 10)).
+		Compute(f.app, f.board, domain.Monthly, f.period(t, domain.Monthly, september))
 	if err != nil {
 		t.Fatalf("Compute: %v", err)
 	}
@@ -199,10 +204,23 @@ func TestComputeExcludesCardsArchivedBeforeThePeriod(t *testing.T) {
 	admin := testutil.NewUser(t, f.app, "admin@example.test", "Admin", schema.RoleAdmin)
 	testutil.Archive(t, f.app, card, admin)
 
-	// The card is archived "now", so a period well in the future no longer counts
-	// it.
-	future := f.date(2030, time.June, 10, 10)
-	snap, err := f.rollupSvc(future).Compute(f.app, f.board, domain.Daily, f.period(t, domain.Daily, future))
+	// Saving resets created, so backdate both columns after archiving.
+	testutil.Backdate(t, f.app, card, f.date(2026, time.August, 1, 9))
+	testutil.BackdateArchived(t, f.app, card, f.date(2026, time.September, 1, 9))
+
+	// Archived on September 1st: still counted for a period before that...
+	before := f.date(2026, time.August, 15, 10)
+	snap, err := f.rollupSvc(before).Compute(f.app, f.board, domain.Daily, f.period(t, domain.Daily, before))
+	if err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+	if snap.TotalCards != 1 {
+		t.Errorf("total = %d, want 1 for a period before the card was archived", snap.TotalCards)
+	}
+
+	// ...but not for one after it.
+	after := f.date(2026, time.September, 10, 10)
+	snap, err = f.rollupSvc(after).Compute(f.app, f.board, domain.Daily, f.period(t, domain.Daily, after))
 	if err != nil {
 		t.Fatalf("Compute: %v", err)
 	}
@@ -214,8 +232,8 @@ func TestComputeExcludesCardsArchivedBeforeThePeriod(t *testing.T) {
 func TestComputeIsScopedToCadence(t *testing.T) {
 	f := newFixture(t)
 
-	daily := testutil.NewCard(t, f.app, f.board, "Daily thing", domain.Daily)
-	testutil.NewCard(t, f.app, f.board, "Weekly thing", domain.Weekly)
+	daily := f.card(t, f.board, "Daily thing", domain.Daily)
+	f.card(t, f.board, "Weekly thing", domain.Weekly)
 
 	day := f.date(2026, time.September, 3, 10)
 	if _, err := f.occurrenceSvc(day).Complete(f.app, daily.Id, f.member, ""); err != nil {
@@ -238,8 +256,8 @@ func TestComputeIsScopedToBoard(t *testing.T) {
 	f := newFixture(t)
 
 	other := testutil.NewBoard(t, f.app, f.team, "Security Triage")
-	mine := testutil.NewCard(t, f.app, f.board, "Mine", domain.Daily)
-	theirs := testutil.NewCard(t, f.app, other, "Theirs", domain.Daily)
+	mine := f.card(t, f.board, "Mine", domain.Daily)
+	theirs := f.card(t, other, "Theirs", domain.Daily)
 
 	day := f.date(2026, time.September, 3, 10)
 	svc := f.occurrenceSvc(day)
@@ -270,8 +288,8 @@ func TestComputeIsScopedToBoard(t *testing.T) {
 
 func TestPersistStoresEveryCount(t *testing.T) {
 	f := newFixture(t)
-	card := testutil.NewCard(t, f.app, f.board, "A", domain.Daily)
-	testutil.NewCard(t, f.app, f.board, "B", domain.Daily)
+	card := f.card(t, f.board, "A", domain.Daily)
+	f.card(t, f.board, "B", domain.Daily)
 
 	day := f.date(2026, time.September, 3, 10)
 	if _, err := f.occurrenceSvc(day).Complete(f.app, card.Id, f.member, ""); err != nil {
@@ -327,7 +345,7 @@ func TestPersistStoresEveryCount(t *testing.T) {
 // safe.
 func TestPersistIsIdempotent(t *testing.T) {
 	f := newFixture(t)
-	card := testutil.NewCard(t, f.app, f.board, "A", domain.Daily)
+	card := f.card(t, f.board, "A", domain.Daily)
 
 	day := f.date(2026, time.September, 3, 10)
 	if _, err := f.occurrenceSvc(day).Complete(f.app, card.Id, f.member, ""); err != nil {
@@ -358,7 +376,7 @@ func TestPersistIsIdempotent(t *testing.T) {
 
 func TestRunSnapshotsClosedPeriodsOnly(t *testing.T) {
 	f := newFixture(t)
-	card := testutil.NewCard(t, f.app, f.board, "Daily check", domain.Daily)
+	card := f.card(t, f.board, "Daily check", domain.Daily)
 
 	// Complete the card on the 1st, 2nd and 3rd of September.
 	for _, day := range []int{1, 2, 3} {
@@ -402,7 +420,7 @@ func TestRunSnapshotsClosedPeriodsOnly(t *testing.T) {
 // A board that only uses one cadence should not accumulate rows for the others.
 func TestRunSkipsCadencesTheBoardDoesNotUse(t *testing.T) {
 	f := newFixture(t)
-	testutil.NewCard(t, f.app, f.board, "Daily check", domain.Daily)
+	f.card(t, f.board, "Daily check", domain.Daily)
 
 	now := f.date(2026, time.September, 3, 14)
 	report, err := f.rollupSvc(now).Run(f.app, 3)
@@ -428,7 +446,7 @@ func TestRunSkipsCadencesTheBoardDoesNotUse(t *testing.T) {
 // leaving permanent holes.
 func TestRunBackfillsAfterDowntime(t *testing.T) {
 	f := newFixture(t)
-	card := testutil.NewCard(t, f.app, f.board, "Daily check", domain.Daily)
+	card := f.card(t, f.board, "Daily check", domain.Daily)
 
 	// Work happens every day for a week while the rollup job is not running.
 	for day := 1; day <= 7; day++ {
@@ -459,7 +477,7 @@ func TestRunBackfillsAfterDowntime(t *testing.T) {
 
 func TestRunRejectsInvalidLookback(t *testing.T) {
 	f := newFixture(t)
-	if _, err := f.rollupSvc(time.Now()).Run(f.app, 0); err == nil {
+	if _, err := f.rollupSvc(f.date(2026, time.September, 3, 14)).Run(f.app, 0); err == nil {
 		t.Error("expected an error for a zero lookback")
 	}
 }
