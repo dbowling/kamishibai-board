@@ -372,10 +372,63 @@ func (s *Seeder) seedCards(app core.App, boards map[string]*core.Record) ([]*cor
 		if err := app.Save(record); err != nil {
 			return nil, fmt.Errorf("save card %q: %w", spec.Title, err)
 		}
+		if err := s.backdateCard(app, record); err != nil {
+			return nil, err
+		}
 		out = append(out, record)
 	}
 
 	return out, nil
+}
+
+// backdateCard makes a seeded card predate the history invented for it.
+//
+// PocketBase stamps `created` with the real wall-clock time on every insert, so
+// a freshly seeded card looks as if it was born moments ago. Rollup computation
+// only counts cards created before a period ends, so without this every
+// historical rollup would report total_cards = 0 (while still showing done and
+// in-progress counts from the invented occurrences). Setting `created` to the
+// start of the earliest invented period makes the card exist for the whole
+// window. The one extra, oldest period that the rollup lookback covers
+// (HistoryPeriods+1) therefore sees no cards and no occurrences, is Empty and is
+// skipped, which is the intended behaviour.
+//
+// The autodate field overwrites any value set through Save, so the column is
+// written directly, as testutil does. The in-memory record is updated too, so a
+// later Save of this record cannot write the stale timestamp back. It runs on
+// every seed (not just on create), which keeps re-runs idempotent and makes the
+// result independent of when the database was first seeded.
+func (s *Seeder) backdateCard(app core.App, card *core.Record) error {
+	if s.opts.HistoryPeriods <= 0 {
+		return nil
+	}
+
+	title := card.GetString(schema.FieldTitle)
+	cadence := domain.Cadence(card.GetString(schema.FieldCadence))
+
+	// ClosedBefore returns newest first, so the earliest period is the last one.
+	periods, err := s.cal.ClosedBefore(cadence, s.opts.Now(), s.opts.HistoryPeriods)
+	if err != nil {
+		return fmt.Errorf("card %q: %w", title, err)
+	}
+	if len(periods) == 0 {
+		return nil
+	}
+
+	created, err := types.ParseDateTime(periods[len(periods)-1].Start)
+	if err != nil {
+		return fmt.Errorf("card %q: %w", title, err)
+	}
+
+	_, err = app.DB().Update(schema.Cards,
+		dbx.Params{schema.FieldCreated: created.String()},
+		dbx.HashExp{"id": card.Id}).Execute()
+	if err != nil {
+		return fmt.Errorf("backdate card %q: %w", title, err)
+	}
+	card.Set(schema.FieldCreated, created)
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------
