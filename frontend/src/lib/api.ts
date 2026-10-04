@@ -1,5 +1,6 @@
 import { pb } from './pocketbase';
 import type {
+  ActivityReport,
   BoardRecord,
   BoardState,
   Cadence,
@@ -44,6 +45,19 @@ export const api = {
       method: 'GET',
       query: { cadence, periods },
     });
+  },
+
+  /**
+   * Completions per calendar day for a board, for the heatmap.
+   *
+   * The server buckets by day in the board's timezone; the response is every day
+   * on record, so there are no query parameters.
+   */
+  activity(boardId: string): Promise<ActivityReport> {
+    return pb.send<ActivityReport>(
+      `/api/kamishibai/boards/${encodeURIComponent(boardId)}/activity`,
+      { method: 'GET' },
+    );
   },
 
   start(cardId: string, notes?: string): Promise<MutationResult> {

@@ -40,7 +40,8 @@ through a wiki.
 
 **Reporting per task and per period.** What percentage of daily cards were
 completed last month? Which specific card is being skipped most? Both are answered
-from the same reporting screen, over a window you choose.
+from the same reporting screen, over a window you choose. A calendar heatmap of
+completions per day, filterable by cadence, sits above them.
 
 **Multiple teams.** Users can belong to several. Each team owns its boards, and a
 board's cards are only visible to that team. Admins can see everything.

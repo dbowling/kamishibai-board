@@ -151,6 +151,26 @@ export interface Report {
   totals: ReportTotals;
 }
 
+/**
+ * One (day, cadence) bucket of the completions heatmap.
+ *
+ * `date` is YYYY-MM-DD in the board's timezone, already bucketed by the server.
+ * The browser must not re-bucket timestamps itself.
+ */
+export interface ActivityDay {
+  date: string;
+  cadence: Cadence;
+  completed: number;
+}
+
+/** Every day on record for a board, for the completions heatmap. */
+export interface ActivityReport {
+  board: Board;
+  timezone: string;
+  days: ActivityDay[];
+  total: number;
+}
+
 // ---------------------------------------------------------------------------
 // Collection records, as returned by PocketBase's generated API
 // ---------------------------------------------------------------------------
