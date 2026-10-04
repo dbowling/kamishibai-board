@@ -1,5 +1,4 @@
-/// <reference types="vitest" />
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // The dev server proxies the API to the Go backend so the browser sees a single
@@ -24,16 +23,10 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': { target: backendURL, changeOrigin: true, ws: true },
-      // PocketBase's own dashboard, handy during development.
-      '/_': { target: backendURL, changeOrigin: true },
+      // PocketBase's own dashboard, handy during development. Anchored as a
+      // regular expression so it matches /_/ but not Vitest's /__vitest_browser__
+      // assets, which a bare '/_' prefix would send to the backend.
+      '^/_(/|$)': { target: backendURL, changeOrigin: true },
     },
-  },
-
-  test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: ['./src/vitest.setup.ts'],
-    css: false,
-    restoreMocks: true,
   },
 });
