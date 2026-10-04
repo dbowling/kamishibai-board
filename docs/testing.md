@@ -391,8 +391,11 @@ install it once per machine and again after upgrading Playwright:
 mise run frontend:storybook:browsers     # npx playwright install --only-shell chromium
 ```
 
-CI runs the same command (see [ci.md](ci.md)). If the tests time out connecting to
-the browser, a browser build that does not match the pinned Playwright is the first
+To use a Chrome you already have instead, set `CHROME_PATH` to its executable. CI
+does this with the runner's preinstalled Chrome, so CI may test against a different
+browser version than you do (see [ci.md](ci.md)); it prints the version it used.
+
+If the tests time out connecting to the browser, a browser build that does not match the pinned Playwright is the first
 thing to check. Playwright 1.56 hangs while unpacking the browser on Node 26 (1.63
 does not), so check that combination before downgrading.
 

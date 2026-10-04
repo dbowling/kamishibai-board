@@ -43,10 +43,17 @@ Two things keep it cheap:
   request it would never report the check at all, and a required check that never
   reports blocks the merge. Events it cannot diff reliably (a manual run, a new
   branch, a force push, act) run the full job.
-- **It installs only the headless shell.** `npx playwright install --only-shell
-  chromium` fetches about 100 MB in a few seconds. The hosted runner image already
-  carries Chromium's system libraries, so `--with-deps` (an apt update and install)
-  is only added under act.
+- **It downloads no browser when it can avoid it.** The hosted runner image
+  already ships Google Chrome, so the job points the tests at it via
+  `CHROME_PATH`, which `vitest.config.ts` passes to Playwright. That Chrome is not
+  the build Playwright pins, and it moves whenever GitHub updates the image, so the
+  job prints its version before the tests run. If a story passes locally but fails
+  in CI, compare that version with yours first. Without a preinstalled Chrome (act,
+  for example) it falls back to `npx playwright install --only-shell chromium`,
+  about 100 MB and a few seconds.
+- **It fails fast on a hang.** A full run takes well under a minute, so the job is
+  capped at 10 minutes and the browser, test and build steps have their own
+  shorter limits.
 
 ### Toolchains come from mise
 

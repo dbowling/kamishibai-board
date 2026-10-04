@@ -108,7 +108,9 @@ jobs:
   storybook:
     name: Storybook
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # A full run takes well under a minute. The per-step limits below catch a hang
+    # (such as a browser install that never finishes) sooner than this does.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -179,22 +181,45 @@ jobs:
         run: npm ci
         working-directory: frontend
 
-      # Only the headless shell (about 100 MB, a few seconds): the tests never open
-      # a headed browser. The hosted runner image already carries Chromium's system
-      # libraries, so `--with-deps` (an apt update and install) is only added under
-      # act, whose slimmer image may lack them.
-      - name: Install headless Chromium
+      # Use the Chrome that ships with the hosted runner image when there is one,
+      # so nothing is downloaded. NOTE: that is a different browser from the one
+      # Playwright pins (and from what `mise run frontend:storybook:browsers`
+      # installs locally), and it changes whenever GitHub updates the image. If a
+      # story passes locally but fails here, compare the version printed below with
+      # your local one first.
+      #
+      # Without a preinstalled Chrome (act, or a future image) it falls back to
+      # Playwright's headless shell (about 100 MB, a few seconds). `--with-deps` is
+      # added only under act, whose slimmer image may lack the system libraries.
+      - name: Find or install Chromium
+        id: browser
         if: steps.changes.outputs.relevant == 'true'
-        run: npx playwright install --only-shell ${{ env.ACT && '--with-deps' || '' }} chromium
+        timeout-minutes: 3
         working-directory: frontend
+        run: |
+          if chrome=$(command -v google-chrome || command -v google-chrome-stable); then
+            echo "Using the runner's preinstalled Chrome at $chrome"
+            "$chrome" --version
+            echo "path=$chrome" >> "$GITHUB_OUTPUT"
+          else
+            echo "No preinstalled Chrome; installing Playwright's headless shell."
+            npx playwright install --only-shell ${{ env.ACT && '--with-deps' || '' }} chromium
+            echo "Using $(npx playwright --version)'s headless shell:"
+            ls "${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}" | grep headless
+          fi
 
       # Every story is rendered as a test, and the play functions are run.
+      # CHROME_PATH is read by vitest.config.ts; empty means Playwright's own build.
       - name: Story tests
         if: steps.changes.outputs.relevant == 'true'
+        timeout-minutes: 5
+        env:
+          CHROME_PATH: ${{ steps.browser.outputs.path }}
         run: mise run frontend:storybook:test
 
       - name: Build Storybook
         if: steps.changes.outputs.relevant == 'true'
+        timeout-minutes: 5
         run: mise run frontend:storybook:build
 
   manifests:
@@ -248,6 +273,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [backend, frontend, storybook, manifests, container]
     if: always()
+    timeout-minutes: 5
     steps:
       - name: Check results
         run: |

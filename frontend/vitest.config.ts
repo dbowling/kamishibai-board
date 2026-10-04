@@ -57,7 +57,14 @@ export default mergeConfig(
             browser: {
               enabled: true,
               headless: true,
-              provider: playwright(),
+              // CHROME_PATH points the tests at an existing Chrome instead of
+              // Playwright's own pinned build. CI sets it when the runner image
+              // already ships Chrome, so CI and a local run may use different
+              // browser versions. CI prints the one it used at the start of the
+              // job; check that first if a story passes locally but not in CI.
+              provider: playwright({
+                launchOptions: { executablePath: process.env.CHROME_PATH || undefined },
+              }),
               instances: [{ browser: 'chromium' }],
             },
           },
