@@ -76,10 +76,11 @@ Everything is in `config.yaml` as a ConfigMap.
 
 | Key              | Meaning                                                        |
 | ---------------- | -------------------------------------------------------------- |
-| `timezone`       | The single timezone every period boundary is evaluated in       |
-| `rollupCron`     | When the reporting snapshot job runs, in that timezone          |
+| `timezone`       | The instance default timezone; teams without their own use it   |
+| `rollupCron`     | When the reporting snapshot job runs (hourly by default)        |
 | `rollupLookback` | How many closed periods it re-checks, so downtime self-heals    |
 
+Teams can set their own timezone in the app; the job runs hourly so each is covered.
 Changing `timezone` after data exists does not rewrite history. Past occurrences
 keep the period keys they were filed under and rollups keep the boundaries they
 were computed with, so a change shifts only future boundaries. That is the honest

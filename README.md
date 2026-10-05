@@ -71,7 +71,7 @@ one.
 
 The Reporting tab also carries a completions heatmap, drawn by
 [Heat.js](https://www.heatjs.com). It reads completion timestamps straight from
-`occurrences` and the server buckets them by calendar day in the board's timezone,
+`occurrences` and the server buckets them by calendar day in the owning team's timezone,
 so it is a live view of the history rather than a snapshot.
 
 The rollup job re-checks the last few closed periods on every run rather than only
@@ -90,9 +90,12 @@ Canonical, sortable, and readable in a database client:
 | Quarterly | `2026-Q3`    | 1 Jan, 1 Apr, 1 Jul, 1 Oct             |
 | Annual    | `2026-Y`     | 1 January                              |
 
-All boundaries are evaluated in one timezone (`America/New_York` by default) so
-the board flips at the same moment for everyone. The timezone database is compiled
-into the binary, so this holds in a container with no system tzdata.
+Boundaries are evaluated in the owning team's timezone, so a board flips at the same
+moment for everyone on that team. A team with no timezone of its own uses the
+instance default (`America/New_York` unless `KAMISHIBAI_TIMEZONE` says otherwise).
+Each user can also choose a display timezone, which only changes how times are
+shown. The timezone database is compiled into the binary, so this holds in a
+container with no system tzdata.
 
 The fiddly parts are tested: days that are 23 or 25 hours long across daylight
 saving, weeks whose ISO year differs from their calendar year (1 Jan 2026 belongs

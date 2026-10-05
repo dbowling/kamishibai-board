@@ -200,8 +200,8 @@ every value has a working fallback in code.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `KAMISHIBAI_TIMEZONE` | `America/New_York` | The timezone all period boundaries are evaluated in |
-| `KAMISHIBAI_ROLLUP_CRON` | `10 0 * * *` | When the rollup job runs, in that timezone |
+| `KAMISHIBAI_TIMEZONE` | `America/New_York` | The instance default timezone; teams without their own use it |
+| `KAMISHIBAI_ROLLUP_CRON` | `10 * * * *` | When the rollup job runs (hourly, to cover every team's zone) |
 | `KAMISHIBAI_ROLLUP_LOOKBACK` | `14` | How many closed periods it re-checks per run |
 | `KAMISHIBAI_PUBLIC_DIR` | `./pb_public` | Where the built frontend is served from |
 | `KAMISHIBAI_HTTP_ADDR` | `127.0.0.1:8090` | Local backend address (used by mise tasks and the Vite proxy) |

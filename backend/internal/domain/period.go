@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// DefaultTimezone is the timezone used to evaluate period boundaries when none
-// is configured. The whole team shares a single timezone by design: a card that
-// flips "on Monday" must flip at the same moment for everybody looking at the
-// board.
+// DefaultTimezone is the instance default timezone, used to evaluate period
+// boundaries for any team that has not set its own. A team shares a single
+// timezone by design: a card that flips "on Monday" must flip at the same moment
+// for everybody looking at the board.
 const DefaultTimezone = "America/New_York"
 
 // Period is a single occurrence window for a cadence, for example "the week of
