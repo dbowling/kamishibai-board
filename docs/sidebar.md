@@ -59,6 +59,11 @@ board's edit dialog (the keyboard-friendly way). You are always asked to confirm
 - members of the old team lose access to the board unless they are also on the
   new team.
 
+If the two teams use different time zones (a team with none uses the instance
+default), the confirmation also warns that the board's periods will roll over in the
+new team's zone from then on. Past records and reports keep the boundaries they were
+recorded with, so reports show a seam at the move.
+
 A move is refused if the board is archived, either team is archived, or the new
 team already has an active board with the same name.
 
@@ -71,7 +76,7 @@ team already has an active board with the same name.
 | `Sidebar.tsx` | The read-only list, plus the admin-only Edit toggle. Swaps in the editor |
 | `SidebarEditor.tsx` | Edit mode: dnd-kit drag and drop, optimistic updates with rollback, owns the dialogs and the Archived section |
 | `order.ts` | Pure logic: turn a finished drag into a new layout, detect a cross-team move, build `saveOrder` payloads |
-| `TeamDialog.tsx`, `BoardDialog.tsx` | Create / edit forms. Changing a board's team calls `onMoveRequested` instead of saving |
+| `TeamDialog.tsx`, `BoardDialog.tsx` | Create / edit forms. Changing a board's team calls `onMoveRequested` instead of saving. The team form carries the team's time zone (empty inherits the instance default) and warns about a report seam when an existing team's zone is changed |
 | `ConfirmDialog.tsx`, `Modal.tsx` | Shared confirm box and modal shell (Escape, labelled, focus returned to the opener) |
 
 `useBoards(includeArchived)` loads the data. Only an admin in edit mode passes

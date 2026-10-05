@@ -5,9 +5,10 @@ metadata:
   labels:
     app.kubernetes.io/name: kamishibai
 data:
-  # The single timezone in which every period boundary is evaluated. A daily card
-  # flips at midnight here, and a weekly card flips on Monday here, for everyone
-  # looking at the board regardless of where they are.
+  # The instance default timezone. Period boundaries are evaluated in each team's
+  # own timezone, and a team that has not set one uses this. A daily card flips at
+  # midnight in its team's zone, and a weekly card on Monday there, for everyone
+  # on the board regardless of where they are.
   #
   # Changing this after data exists does not rewrite history: past occurrences
   # keep the period keys they were filed under, and rollups keep the boundaries
@@ -15,9 +16,11 @@ data:
   timezone: America/New_York
 
   # When the reporting rollup job runs, interpreted in the timezone above. Every
-  # cadence rolls over at local midnight, so one run shortly after midnight
-  # catches daily, weekly, monthly, quarterly and annual closures alike.
-  rollupCron: "10 0 * * *"
+  # cadence rolls over at local midnight, and teams can have different timezones,
+  # so the job runs hourly: each team's closed periods are rolled up within about
+  # an hour of its own midnight. It is an idempotent upsert, so the extra runs are
+  # cheap.
+  rollupCron: "10 * * * *"
 
   # How many closed periods the job re-checks on each run. This is what lets it
   # recover from downtime: if the pod was away for a week, the next run fills the

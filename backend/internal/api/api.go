@@ -16,7 +16,7 @@
 //  3. Reporting. Stitching frozen rollups together with the still-open current
 //     period, and deriving per-card rates.
 //
-//  4. Activity. Counting completions per calendar day in the board's timezone,
+//  4. Activity. Counting completions per calendar day in the owning team's timezone,
 //     which SQLite cannot do and the browser must not.
 //
 //  5. Sidebar structure. Reordering teams and boards touches many rows that must
@@ -45,6 +45,7 @@ import (
 	"github.com/dbowling/kamishibai/backend/internal/occurrence"
 	"github.com/dbowling/kamishibai/backend/internal/rollup"
 	"github.com/dbowling/kamishibai/backend/internal/schema"
+	"github.com/dbowling/kamishibai/backend/internal/teamcal"
 )
 
 // BasePath prefixes every custom route.
@@ -53,16 +54,24 @@ const BasePath = "/api/kamishibai"
 // Handler owns the custom endpoints.
 type Handler struct {
 	cfg        config.Config
+	cals       *domain.Calendars
 	occurrence *occurrence.Service
 	rollup     *rollup.Service
 }
 
 // NewHandler builds a Handler from the application configuration.
 func NewHandler(cfg config.Config) *Handler {
+	// A Config assembled by hand may carry only the default calendar.
+	cals := cfg.Calendars
+	if cals == nil {
+		cals = domain.NewCalendars(cfg.Calendar)
+	}
+
 	return &Handler{
 		cfg:        cfg,
-		occurrence: occurrence.NewService(cfg.Calendar),
-		rollup:     rollup.NewService(cfg.Calendar),
+		cals:       cals,
+		occurrence: occurrence.NewServiceWithCalendars(cals),
+		rollup:     rollup.NewServiceWithCalendars(cals),
 	}
 }
 
@@ -95,25 +104,46 @@ func (h *Handler) Register(se *core.ServeEvent) {
 // The server is the single source of truth for period keys. The frontend renders
 // what it is told rather than recomputing ISO weeks and daylight-saving
 // boundaries in the browser, where it could disagree with the backend.
+//
+// Periods depend on the team's timezone, so `?team=<id>` answers for that team.
+// Without it the answer is for the instance default, which is what every team
+// without a timezone of its own uses.
 func (h *Handler) currentPeriods(e *core.RequestEvent) error {
-	periods, err := h.periodMap()
+	cal, zone := h.cfg.Calendar, h.cfg.Timezone
+
+	if teamID := e.Request.URL.Query().Get("team"); teamID != "" {
+		team, err := e.App.FindRecordById(schema.Teams, teamID)
+		// Unreadable and nonexistent teams look the same, for the same reason as
+		// boards: confirming that another team exists is a small leak.
+		if err != nil || !access.CanReadTeam(team, e.Auth) {
+			return e.NotFoundError("No such team.", nil)
+		}
+
+		cal, err = teamcal.For(h.cals, team)
+		if err != nil {
+			return e.InternalServerError("Could not resolve the team's timezone.", err)
+		}
+		zone = teamcal.Timezone(h.cals, team)
+	}
+
+	periods, err := h.periodMap(cal)
 	if err != nil {
 		return e.InternalServerError("Could not resolve the current periods.", err)
 	}
 
 	return e.JSON(http.StatusOK, currentPeriodsResponse{
-		Timezone: h.cfg.Timezone,
+		Timezone: zone,
 		ServerAt: h.occurrence.Now().Format(timeLayout),
 		Periods:  periods,
 	})
 }
 
-func (h *Handler) periodMap() (map[string]periodDTO, error) {
+func (h *Handler) periodMap(cal *domain.Calendar) (map[string]periodDTO, error) {
 	now := h.occurrence.Now()
 	out := make(map[string]periodDTO, len(domain.Cadences()))
 
 	for _, cadence := range domain.Cadences() {
-		p, err := h.cfg.Calendar.At(cadence, now)
+		p, err := cal.At(cadence, now)
 		if err != nil {
 			return nil, err
 		}
@@ -128,9 +158,15 @@ func (h *Handler) periodMap() (map[string]periodDTO, error) {
 
 // boardState returns a board, its cards and each card's current status.
 func (h *Handler) boardState(e *core.RequestEvent) error {
-	board, err := h.loadReadableBoard(e)
+	board, team, err := h.loadReadableBoard(e)
 	if err != nil {
 		return err
+	}
+
+	// The board's periods are its team's, not the instance's.
+	cal, err := teamcal.For(h.cals, team)
+	if err != nil {
+		return e.InternalServerError("Could not resolve the team's timezone.", err)
 	}
 
 	includeArchived := e.Request.URL.Query().Get("includeArchived") == "true"
@@ -151,7 +187,7 @@ func (h *Handler) boardState(e *core.RequestEvent) error {
 		return e.InternalServerError("Could not resolve attribution.", err)
 	}
 
-	periods, err := h.periodMap()
+	periods, err := h.periodMap(cal)
 	if err != nil {
 		return e.InternalServerError("Could not resolve the current periods.", err)
 	}
@@ -160,7 +196,7 @@ func (h *Handler) boardState(e *core.RequestEvent) error {
 		Board:    newBoardDTO(board),
 		Periods:  periods,
 		Cards:    make([]cardDTO, 0, len(cards)),
-		Timezone: h.cfg.Timezone,
+		Timezone: teamcal.Timezone(h.cals, team),
 		ServerAt: h.occurrence.Now().Format(timeLayout),
 	}
 
@@ -466,9 +502,14 @@ const (
 // Closed periods come from the frozen rollups. The period still in progress has
 // no snapshot by definition, so it is computed live and tagged as such.
 func (h *Handler) boardReport(e *core.RequestEvent) error {
-	board, err := h.loadReadableBoard(e)
+	board, team, err := h.loadReadableBoard(e)
 	if err != nil {
 		return err
+	}
+
+	cal, err := teamcal.For(h.cals, team)
+	if err != nil {
+		return e.InternalServerError("Could not resolve the team's timezone.", err)
 	}
 
 	query := e.Request.URL.Query()
@@ -489,7 +530,7 @@ func (h *Handler) boardReport(e *core.RequestEvent) error {
 
 	now := h.occurrence.Now()
 
-	closed, err := h.cfg.Calendar.ClosedBefore(cadence, now, periods)
+	closed, err := cal.ClosedBefore(cadence, now, periods)
 	if err != nil {
 		return e.InternalServerError("Could not resolve the reporting window.", err)
 	}
@@ -497,7 +538,7 @@ func (h *Handler) boardReport(e *core.RequestEvent) error {
 	response := reportResponse{
 		Board:    newBoardDTO(board),
 		Cadence:  string(cadence),
-		Timezone: h.cfg.Timezone,
+		Timezone: teamcal.Timezone(h.cals, team),
 		Series:   make([]reportPointDTO, 0, len(closed)+1),
 	}
 
@@ -539,7 +580,7 @@ func (h *Handler) boardReport(e *core.RequestEvent) error {
 	}
 
 	// The period in progress.
-	currentPeriod, err := h.cfg.Calendar.At(cadence, now)
+	currentPeriod, err := cal.At(cadence, now)
 	if err != nil {
 		return e.InternalServerError("Could not resolve the current period.", err)
 	}
@@ -583,9 +624,14 @@ const dayLayout = "2006-01-02"
 // a rollup is a per-period snapshot, and a heatmap needs the day each completion
 // actually happened, including inside periods that are still open.
 func (h *Handler) boardActivity(e *core.RequestEvent) error {
-	board, err := h.loadReadableBoard(e)
+	board, team, err := h.loadReadableBoard(e)
 	if err != nil {
 		return err
+	}
+
+	cal, err := teamcal.For(h.cals, team)
+	if err != nil {
+		return e.InternalServerError("Could not resolve the team's timezone.", err)
 	}
 
 	// Two columns rather than whole records: occurrences grow without bound, but
@@ -614,8 +660,9 @@ func (h *Handler) boardActivity(e *core.RequestEvent) error {
 
 	// Bucketed here rather than in SQL: SQLite has no timezone database, and the
 	// server already owns the calendar, so the day boundaries (and DST) agree with
-	// every other period the app reports.
-	loc := h.cfg.Calendar.Location()
+	// every other period the app reports. The calendar is the team's, so the same
+	// completion can fall on different days for teams in different zones.
+	loc := cal.Location()
 	type bucket struct{ date, cadence string }
 	counts := make(map[bucket]int)
 	for _, row := range rows {
@@ -630,7 +677,7 @@ func (h *Handler) boardActivity(e *core.RequestEvent) error {
 	// which the client would otherwise have to special-case.
 	response := activityResponse{
 		Board:    newBoardDTO(board),
-		Timezone: h.cfg.Timezone,
+		Timezone: teamcal.Timezone(h.cals, team),
 		Days:     []activityDayDTO{},
 	}
 	for key, completed := range counts {
@@ -749,29 +796,30 @@ func (h *Handler) cardReports(app core.App, board *core.Record, cadence domain.C
 // ---------------------------------------------------------------------------
 
 // loadReadableBoard resolves the {boardId} path parameter and checks the caller
-// may read it.
+// may read it. It returns the board's team too, which callers need for its
+// timezone and which the access check has loaded anyway.
 //
 // Archived boards are readable so that history and reporting survive archival.
-func (h *Handler) loadReadableBoard(e *core.RequestEvent) (*core.Record, error) {
+func (h *Handler) loadReadableBoard(e *core.RequestEvent) (*core.Record, *core.Record, error) {
 	boardID := e.Request.PathValue("boardId")
 	if boardID == "" {
-		return nil, e.BadRequestError("Missing board id.", nil)
+		return nil, nil, e.BadRequestError("Missing board id.", nil)
 	}
 
 	board, err := e.App.FindRecordById(schema.Boards, boardID)
 	if err != nil {
-		return nil, e.NotFoundError("No such board.", err)
+		return nil, nil, e.NotFoundError("No such board.", err)
 	}
 
 	team, err := access.LoadTeam(e.App, board)
 	if err != nil {
-		return nil, e.InternalServerError("Could not resolve the board's team.", err)
+		return nil, nil, e.InternalServerError("Could not resolve the board's team.", err)
 	}
 	if !access.CanReadTeam(team, e.Auth) {
 		// Deliberately 404 rather than 403: revealing that a board exists on
 		// another team is itself a small leak.
-		return nil, e.NotFoundError("No such board.", nil)
+		return nil, nil, e.NotFoundError("No such board.", nil)
 	}
 
-	return board, nil
+	return board, team, nil
 }

@@ -24,13 +24,19 @@ export const api = {
   /**
    * Which period each cadence is currently in, according to the server.
    *
+   * Without a team this answers for the instance default zone, which is also what
+   * `timezone` then reports: it is how the browser learns that default.
+   *
    * The browser never computes period keys itself. ISO week numbering and
    * daylight-saving boundaries are fiddly enough that a second implementation
    * would eventually disagree with the first, and then the board would show a
    * different day's work to different people.
    */
-  currentPeriods(): Promise<CurrentPeriods> {
-    return pb.send<CurrentPeriods>('/api/kamishibai/periods/current', { method: 'GET' });
+  currentPeriods(options?: { teamId?: string }): Promise<CurrentPeriods> {
+    return pb.send<CurrentPeriods>('/api/kamishibai/periods/current', {
+      method: 'GET',
+      query: options?.teamId ? { team: options.teamId } : undefined,
+    });
   },
 
   /** A board, its cards, and each card's status for the period it is in. */
@@ -52,7 +58,7 @@ export const api = {
   /**
    * Completions per calendar day for a board, for the heatmap.
    *
-   * The server buckets by day in the board's timezone; the response is every day
+   * The server buckets by day in the owning team's timezone; the response is every day
    * on record, so there are no query parameters.
    */
   activity(boardId: string): Promise<ActivityReport> {
@@ -94,19 +100,41 @@ export const api = {
   // caller and is itself admin-only, but the server is what actually enforces it.
 
   /** Create a team. `sortOrder` places it in the sidebar (omit for the default). */
-  createTeam(name: string, description: string, sortOrder?: number): Promise<TeamRecord> {
+  createTeam(
+    name: string,
+    description: string,
+    sortOrder?: number,
+    timezone = '',
+  ): Promise<TeamRecord> {
     return pb.collection('teams').create<TeamRecord>({
       name,
       description,
+      timezone,
       ...(sortOrder === undefined ? {} : { sort_order: sortOrder }),
     });
   },
 
-  updateTeam(id: string, input: { name: string; description: string }): Promise<TeamRecord> {
+  /** `timezone` is the team's operational zone; '' hands it back to the instance default. */
+  updateTeam(
+    id: string,
+    input: { name: string; description: string; timezone: string },
+  ): Promise<TeamRecord> {
     return pb.collection('teams').update<TeamRecord>(id, {
       name: input.name,
       description: input.description,
+      timezone: input.timezone,
     });
+  },
+
+  /**
+   * Set how the signed-in user sees times; '' means "use the browser's zone".
+   *
+   * Display only. The PocketBase client writes the updated record back into the
+   * auth store when it is the signed-in user's own, which is what makes the new
+   * zone take effect straight away.
+   */
+  updateDisplayTimeZone(userId: string, timezone: string): Promise<unknown> {
+    return pb.collection('users').update(userId, { timezone });
   },
 
   /** Archive a team. Its boards stay as they are and reappear if it is restored. */

@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, mocked, waitFor, within } from 'storybook/test';
 import { api } from '../lib/api';
-import { BOARD, CARDS } from '../stories/fixtures';
+import { pb } from '../lib/pocketbase';
+import { BOARD, CARDS, USERS } from '../stories/fixtures';
 import { defaultSeed, installFakeBackend, pending } from '../stories/fakeBackend';
 import { BoardPage } from './BoardPage';
 
@@ -154,5 +155,31 @@ export const Unavailable: Story = {
   play: async ({ canvas }) => {
     const alert = await canvas.findByRole('alert');
     await expect(alert).toHaveTextContent('That board is not available');
+  },
+};
+
+export const TimezoneBanner: Story = {
+  play: async ({ canvas }) => {
+    await canvas.findByRole('heading', { name: 'Platform triage' });
+    // Names the team's zone, which is what decides when periods roll over.
+    await expect(canvas.getByText(/Periods roll over at midnight, America\/New_York/)).toBeInTheDocument();
+  },
+};
+
+export const TimezoneBannerShowsYourTime: Story = {
+  // A viewer far from the team's zone. Display only: the board is unchanged.
+  beforeEach: () => {
+    pb.authStore.save('storybook-token', {
+      ...USERS.dana,
+      collectionId: 'users',
+      collectionName: 'users',
+      timezone: 'Asia/Tokyo',
+    });
+  },
+  play: async ({ canvas }) => {
+    await canvas.findByRole('heading', { name: 'Platform triage' });
+    await expect(await canvas.findByText(/your time\)/)).toHaveTextContent(
+      /Periods roll over at midnight, America\/New_York \(\d{2}:\d{2} your time\)/,
+    );
   },
 };

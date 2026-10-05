@@ -50,6 +50,12 @@ const (
 	FieldCadence     = "cadence"
 	FieldRole        = "role"
 	FieldMembers     = "members"
+
+	// FieldTimezone is an IANA zone name on both teams and users, with different
+	// meanings. On a team it is the operational zone its periods are evaluated in
+	// (empty inherits the instance default). On a user it is display-only (empty
+	// means "use the browser's zone").
+	FieldTimezone = "timezone"
 )
 
 // Card fields.

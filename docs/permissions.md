@@ -110,6 +110,13 @@ Applied like this:
 | `occurrences` | `TeamMember` | `nil` | `nil` | `nil` |
 | `report_rollups` | `TeamMember` | `nil` | `nil` | `nil` |
 
+**A team's time zone is admin-only** because it decides when that team's periods
+roll over. It needs no hook of its own: it is a field on `teams`, whose update rule
+is `AdminOnly`, so a member never reaches the hook that validates it. A **user's**
+time zone is display-only and sits on their own record, which they may edit like the
+rest of their profile. Both are checked by `domain.ValidTimezone` in the record
+hooks (400 on an unknown name).
+
 **`nil` means superusers only.** That is how "archive, never delete" is enforced:
 no client, admin included, can issue a successful `DELETE`. It is a property of the
 API, not a UI convention that a stray curl could bypass.

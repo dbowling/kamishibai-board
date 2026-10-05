@@ -88,19 +88,29 @@ All in the ConfigMap in `deploy/k8s/config.yaml`.
 
 | Key | Env var | Default | Meaning |
 | --- | --- | --- | --- |
-| `timezone` | `KAMISHIBAI_TIMEZONE` | `America/New_York` | The single timezone all period boundaries are evaluated in |
-| `rollupCron` | `KAMISHIBAI_ROLLUP_CRON` | `10 0 * * *` | When the reporting snapshot job runs, in that timezone |
+| `timezone` | `KAMISHIBAI_TIMEZONE` | `America/New_York` | The instance default timezone, used by every team that has not set its own |
+| `rollupCron` | `KAMISHIBAI_ROLLUP_CRON` | `10 * * * *` | When the reporting snapshot job runs. Hourly, so each team's own midnight is covered |
 | `rollupLookback` | `KAMISHIBAI_ROLLUP_LOOKBACK` | `14` | How many closed periods it re-checks, so downtime self-heals |
 
 A malformed timezone is a **startup failure**, not a silent fallback to UTC. That is
 intentional: a typo would otherwise shift every boundary in the system without anyone
 noticing.
 
-**Changing the timezone after data exists does not rewrite history.** Existing
-occurrences keep the period keys they were filed under, and rollups keep the
-boundaries they were computed with. Only future boundaries move, which means a
-mid-year change leaves a visible seam in reports. Decide this before you start
-recording work if you can.
+Teams can override the default with their own timezone (an admin sets it in the team
+dialog); a team with none inherits `KAMISHIBAI_TIMEZONE`, so upgrading changes
+nothing for existing teams. Each user can also pick a display-only timezone, which
+never affects period boundaries. See [Scheduling and time](scheduling.md#timezone).
+
+**Changing a timezone after data exists does not rewrite history**, whether it is
+`KAMISHIBAI_TIMEZONE` or one team's. Existing occurrences keep the period keys they
+were filed under, and rollups keep the boundaries they were computed with. Only
+future boundaries move, which means a mid-year change leaves a visible seam in that
+team's reports. Decide this before you start recording work if you can.
+
+**Leave the rollup schedule hourly** unless every team shares the default zone. A
+once-a-day schedule would roll a team's periods up long after its own midnight.
+Reports compute a missing snapshot live, so nothing is wrong in the meantime, but it
+is slower.
 
 ## The container
 

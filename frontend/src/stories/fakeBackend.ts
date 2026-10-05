@@ -11,6 +11,7 @@
 // mocked(api.x), which runs afterwards and so wins.
 import { isMockFunction, mocked, spyOn } from 'storybook/test';
 import { api } from '../lib/api';
+import { pb } from '../lib/pocketbase';
 import type {
   ActivityDay,
   Board,
@@ -189,11 +190,12 @@ export function installFakeBackend(seed: Seed = defaultSeed()) {
       .sort(bySortOrder),
   );
 
-  stub('createTeam').mockImplementation(async (name, description, sortOrder) => {
+  stub('createTeam').mockImplementation(async (name, description, sortOrder, timezone) => {
     const team: TeamRecord = {
       id: `nt${++created}`,
       name,
       description,
+      timezone: timezone ?? '',
       members: [],
       sort_order: sortOrder ?? 0,
       archived_at: '',
@@ -204,6 +206,13 @@ export function installFakeBackend(seed: Seed = defaultSeed()) {
   });
 
   stub('updateTeam').mockImplementation(async (id, input) => patchTeam(id, input) ?? notFound());
+  // Mirrors PocketBase's client, which writes the updated record back into the
+  // auth store when it is the signed-in user's own.
+  stub('updateDisplayTimeZone').mockImplementation(async (userId, timezone) => {
+    const record = pb.authStore.record;
+    if (record?.id === userId) pb.authStore.save(pb.authStore.token, { ...record, timezone });
+    return {};
+  });
   stub('archiveTeam').mockImplementation(
     async (id) => patchTeam(id, { archived_at: SERVER_AT }) ?? notFound(),
   );

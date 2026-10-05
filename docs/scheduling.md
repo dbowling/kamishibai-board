@@ -73,13 +73,72 @@ and then a lookup keyed on the result.
 
 ## Timezone
 
-Every boundary is evaluated in **one timezone for the whole instance**, default
-`America/New_York`, set by `KAMISHIBAI_TIMEZONE`.
+There are two time zones in play, and they do different jobs.
 
-A single shared timezone is deliberate. A card that flips "on Monday" has to flip at
-the same instant for everybody looking at the board, or two people disagree about
-whether today's work is done. Per-user timezones would make the board a set of
-private views rather than one shared artefact.
+| | Whose | Decides | Empty means |
+| --- | --- | --- | --- |
+| **Team zone** | Each team | Period keys, rollover, which period is writable, rollups, the activity heatmap's day buckets | Inherit the instance default |
+| **Display zone** | Each user | How instants (started, completed, "closes at") are *rendered* for that person | Use the browser's zone |
+
+### The team zone is the operational truth
+
+Every boundary for a card is evaluated in the zone of the **team** that owns its
+board, default `America/New_York` (the instance default, set by
+`KAMISHIBAI_TIMEZONE`). A team can set its own, so a team in Tokyo flips its
+daily cards at Tokyo midnight rather than New York's.
+
+The reasoning is the same as when there was one zone for the whole instance, just
+applied per team: a card that flips "on Monday" has to flip at the same instant for
+everybody working that board, or two people disagree about whether today's work is
+done. One board, one clock. What changed is that the clock belongs to the team
+rather than the deployment.
+
+The same instant can therefore be different days for different teams:
+
+```
+2026-10-05 20:00 in New York  =  2026-10-06 09:00 in Tokyo
+
+NY team's daily card     → 2026-10-05
+Tokyo team's daily card  → 2026-10-06
+```
+
+`domain.Calendars` resolves a zone name to a `Calendar` (an empty name gives the
+default, and each name is loaded once and cached), and `internal/teamcal` joins that
+to a team record. Everything that asks "which period" goes through it:
+`occurrence.Service` (`StatesFor` loads the cards' teams in one query,
+`mutateOnce` already holds the team), `rollup.Service.Run` (each board is walked in
+its own team's calendar), and the board, report and activity endpoints, which report
+the team's **effective** zone as `timezone`.
+
+A stored team zone that fails to load is an **error**, never a fallback to the
+default or UTC. The hooks validate zones on the way in, so it can only happen
+through a bug or a hand edit of the database, and quietly using another zone would
+shift that team's boundaries without anyone noticing.
+
+#### Inheritance
+
+A team with an empty zone uses the instance default, so every team that existed
+before zones did behaves exactly as it did. There is no backfill. A malformed
+`KAMISHIBAI_TIMEZONE` is still a **startup error** rather than a fallback to UTC,
+for the same reason.
+
+### The display zone changes nothing the server computes
+
+A user's zone only changes how an instant is written in their browser, using
+`Intl.DateTimeFormat`'s `timeZone` option. It never changes a period key, a card's
+status, a report bucket or who may do what. Anyone can set their own (the `users`
+update rule already allows editing your own record); empty means the browser's own
+zone.
+
+Period keys are **not** instants, so no display zone is applied to them. `2026-10-05`
+is labelled as 5 October by building the date in UTC and formatting it in UTC; a
+viewer in a zone far to the east or west cannot shift it to the 4th or the 6th.
+
+The board banner ties the two together: "Periods roll over at midnight,
+Asia/Tokyo (11:00 your time)", as a viewer in New York would read it, names the
+team's zone and, when yours differs, what that midnight is on your clock.
+
+### The IANA database is compiled in
 
 The IANA timezone database is **compiled into the binary**:
 
@@ -93,15 +152,23 @@ system tzdata, which the distroless container image does not. The failure mode w
 be silently computing UTC boundaries in production while working correctly on a
 developer's Mac — a bug worth a few hundred KB of binary to eliminate.
 
-A malformed timezone is a **startup error**, not a fallback to UTC, because a typo
-would otherwise shift every boundary in the system without anyone noticing.
+`domain.ValidTimezone` is what the hooks use for team and user zones. It rejects
+unknown names, the empty string (which `LoadLocation` would treat as UTC) and
+`"Local"` (whatever zone the server process happens to run in).
 
-### Changing it later
+### Changing a team's zone, or moving a board
 
-Changing `KAMISHIBAI_TIMEZONE` on a database with data does not rewrite history.
-Existing occurrences keep the period keys they were filed under, and rollups keep the
+Only admins change a team's zone. Doing so does not rewrite history: existing
+occurrences keep the period keys they were filed under, and rollups keep the
 boundaries they were computed with. Only future boundaries move. That is the honest
-behaviour, but it does mean a mid-year change leaves a visible seam in reports.
+behaviour, but it does mean a change leaves a visible **seam** in that team's
+reports, and the team dialog says so before saving.
+
+Moving a board to a team in a different zone has the same effect for that board,
+and the move confirmation carries the same warning. Moves between teams in the same
+zone are seamless.
+
+Changing `KAMISHIBAI_TIMEZONE` behaves the same way for every team that inherits it.
 
 ## Daylight saving
 
@@ -166,7 +233,12 @@ The frontend never computes a period key. It asks:
 
 ```
 GET /api/kamishibai/periods/current
+GET /api/kamishibai/periods/current?team=<teamId>
 ```
+
+Without `team` the answer is for the instance default zone; with it, for that team's
+(the caller must be able to read the team, otherwise it is a 404). Board state,
+report and activity responses already use their own team's zone.
 
 ```json
 {
@@ -186,8 +258,8 @@ A second implementation of ISO week numbering in the browser would eventually
 disagree with the first, and the symptom would be two people looking at different
 days' work. One implementation, one source of truth.
 
-The board's own state response embeds the same period objects per card, so drawing a
-board needs no extra call.
+The board's own state response embeds the same period objects per card, in the
+board's team zone, so drawing a board needs no extra call.
 
 ## The one scheduled job: rollups
 
@@ -249,14 +321,24 @@ app.Cron().SetTimezone(cfg.Calendar.Location())
 app.Cron().MustAdd(RollupJobID, cfg.RollupCron, func() { service.Run(app, cfg.RollupLookback) })
 ```
 
-`SetTimezone` matters. Every cadence rolls over at local midnight, so the job is
-scheduled at `10 0 * * *` — 00:10 in the board's timezone. Without it the schedule
-would follow the container's clock, which is usually UTC, and would fire at 20:10
-the previous evening. The job would still be correct, because it only ever
-summarises periods that have already closed, but it would be a day late.
+The default schedule is `10 * * * *`: ten minutes past **every hour**. Every cadence
+rolls over at local midnight, but teams can have their own zones, so some team's
+midnight falls in almost every hour of the day. Running hourly means each team's
+closed periods are rolled up within about an hour of its own midnight, rather than
+waiting for the instance default's. `Run` walks each board in its team's calendar,
+so a period that has closed in Tokyo is rolled up for Tokyo's boards while New
+York's, still open, is left until it closes there.
 
-One daily run catches every cadence: daily periods close every night, weekly on
-Monday, monthly/quarterly/annual on the 1st, and all of them at midnight.
+The extra runs are cheap: the job is an idempotent upsert over a bounded window (see
+below), and most runs find nothing new. It is also safe if a run is skipped or
+doubled.
+
+`SetTimezone` still matters if you set `KAMISHIBAI_ROLLUP_CRON` to something in local
+terms (say `10 0 * * *`). Without it the schedule would follow the container's
+clock, which is usually UTC. Note that a once-a-day schedule only suits an instance
+whose teams all share the default zone; the job would still be correct for the
+others, because it only ever summarises periods that have already closed, but their
+snapshots would arrive late.
 
 ### Self-healing
 
@@ -357,6 +439,10 @@ svc := occurrence.NewService(cal).WithClock(func() time.Time { return frozen })
 tomorrow := svc.WithClock(func() time.Time { return frozen.AddDate(0, 0, 1) })
 ```
 
+`NewService(cal)` gives every team the one calendar. To test teams in different zones,
+build the service with `NewServiceWithCalendars(domain.NewCalendars(cal))` and give
+the teams zones with `testutil.NewTeamInZone`.
+
 See [Testing](testing.md#testing-time-dependent-behaviour) for the dates with useful
 properties.
 
@@ -364,6 +450,8 @@ properties.
 
 | Function | Answers |
 | --- | --- |
+| `Calendars.For(zone)` | The calendar for a zone name; empty gives the instance default |
+| `teamcal.For(cals, team)` | The calendar a team's periods are evaluated in |
 | `Calendar.At(cadence, t)` | Which period contains `t` |
 | `Calendar.Current(cadence)` | Which period we are in now |
 | `Calendar.Next` / `Previous` / `Shift` | Neighbouring periods |

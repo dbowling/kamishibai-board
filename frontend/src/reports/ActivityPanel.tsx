@@ -64,7 +64,7 @@ export function ActivityPanel({ boardId }: ActivityPanelProps) {
         <>
           <ActivityHeatmap report={report} />
           <p className="report__note">
-            Each square is one calendar day in the board's timezone ({report.timezone}). Switch
+            Each square is one calendar day in the team&rsquo;s time zone ({report.timezone}). Switch
             between all completions and a single cadence with the toggles under the chart.
           </p>
         </>

@@ -33,7 +33,17 @@ export const AVERY: UserRef = {
 
 export const TEAMS: TeamRecord[] = [
   { id: 't1', name: 'Platform', description: '', members: [USERS.dana.id], sort_order: 1, archived_at: '' },
-  { id: 't2', name: 'Support', description: '', members: [USERS.dana.id], sort_order: 2, archived_at: '' },
+  // Support runs on its own clock, so moving a board between Platform (which
+  // inherits the instance default) and Support crosses time zones.
+  {
+    id: 't2',
+    name: 'Support',
+    description: '',
+    members: [USERS.dana.id],
+    sort_order: 2,
+    archived_at: '',
+    timezone: 'Asia/Tokyo',
+  },
   // Archived: never in the sidebar, only under "Archived" while an admin edits it.
   {
     id: 't3',

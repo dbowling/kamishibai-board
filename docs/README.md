@@ -17,7 +17,7 @@ the rest can be read as you need them.
 | [Testing](testing.md) | Running tests, the fixtures and helpers available, how to test time-dependent behaviour |
 | [Permissions](permissions.md) | Who can do what, and the three layers that enforce it |
 | [Managing the sidebar](sidebar.md) | Admin guide to teams, boards, ordering and moves, and how the editor is built |
-| [Scheduling and time](scheduling.md) | Periods, how cards flip, the rollup job, timezones and daylight saving |
+| [Scheduling and time](scheduling.md) | Periods, how cards flip, the rollup job, team and display timezones, daylight saving |
 | [Realtime](realtime.md) | How a teammate's click reaches your screen. Written for readers with no realtime experience |
 | [CI](ci.md) | The GitHub Actions workflow, and running it locally with act |
 | [Production](production.md) | Deploying, operating, backing up, and the constraints that come with SQLite |

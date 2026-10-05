@@ -105,6 +105,21 @@ export const EditMode: Story = {
   },
 };
 
+export const MoveAcrossZonesWarns: Story = {
+  parameters: { auth: 'admin' },
+  play: async ({ canvas, userEvent }) => {
+    await openEditor(canvas, userEvent);
+    await userEvent.click(canvas.getByRole('button', { name: 'Edit board Platform triage' }));
+    await userEvent.selectOptions(await canvas.findByLabelText(/^Team/), 't2');
+    await userEvent.click(canvas.getByRole('button', { name: 'Continue' }));
+
+    // Platform inherits the instance default and Support runs on Tokyo time.
+    await expect(await canvas.findByRole('alertdialog', { name: /Move Platform triage to Support/ })).toBeInTheDocument();
+    await expect(await canvas.findByText(/different time zones/)).toHaveTextContent(/Asia\/Tokyo/);
+    await expect(canvas.getByText(/reports will show a seam/)).toBeInTheDocument();
+  },
+};
+
 export const ArchivedSection: Story = {
   parameters: { auth: 'admin' },
   play: async ({ canvas, userEvent }) => {

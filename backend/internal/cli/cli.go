@@ -106,7 +106,7 @@ func NewRollupCommand(app core.App, cfg config.Config) *cobra.Command {
 				return fmt.Errorf("apply migrations: %w", err)
 			}
 
-			report, err := rollup.NewService(cfg.Calendar).Run(app, lookback)
+			report, err := rollup.NewServiceWithCalendars(cfg.Calendars).Run(app, lookback)
 			if err != nil {
 				return err
 			}

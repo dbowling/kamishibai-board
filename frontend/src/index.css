@@ -210,6 +210,16 @@ code {
   color: var(--text-muted);
 }
 
+/* A heads-up about a consequence of the change being made: it does not block saving. */
+.field__warning {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  background: var(--not-started-bg);
+  color: var(--not-started);
+  font-size: 0.85rem;
+}
+
 .checkbox {
   display: inline-flex;
   align-items: center;

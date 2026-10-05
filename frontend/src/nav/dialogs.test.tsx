@@ -87,7 +87,7 @@ describe('TeamDialog', () => {
     await userEvent.type(screen.getByLabelText('Name'), '  Ops ');
     await userEvent.click(create);
 
-    await waitFor(() => expect(api.createTeam).toHaveBeenCalledWith('Ops', '', 4));
+    await waitFor(() => expect(api.createTeam).toHaveBeenCalledWith('Ops', '', 4, ''));
     expect(onSaved).toHaveBeenCalled();
   });
 
@@ -101,7 +101,55 @@ describe('TeamDialog', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save team' }));
 
     await waitFor(() =>
-      expect(api.updateTeam).toHaveBeenCalledWith('t1', { name: 'Platform 2', description: 'Infra' }),
+      expect(api.updateTeam).toHaveBeenCalledWith('t1', { name: 'Platform 2', description: 'Infra', timezone: '' }),
+    );
+  });
+
+  it('names the instance default as the empty time zone option', () => {
+    render(<TeamDialog defaultTimezone="America/New_York" onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    const select = screen.getByLabelText(/^Time zone/);
+    expect(select).toHaveValue('');
+    expect(screen.getByRole('option', { name: 'Instance default (America/New_York)' })).toBeInTheDocument();
+  });
+
+  it('creates a team with the chosen time zone and no seam warning', async () => {
+    render(<TeamDialog nextSortOrder={4} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await userEvent.type(screen.getByLabelText('Name'), 'Tokyo ops');
+    await userEvent.selectOptions(screen.getByLabelText(/^Time zone/), 'Asia/Tokyo');
+    // A new team has no history, so there is nothing to leave a seam in.
+    expect(screen.queryByText(/seam/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Create team' }));
+
+    await waitFor(() =>
+      expect(api.createTeam).toHaveBeenCalledWith('Tokyo ops', '', 4, 'Asia/Tokyo'),
+    );
+  });
+
+  it('warns about a seam only once an existing team zone is changed', async () => {
+    render(<TeamDialog team={team} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    expect(screen.queryByText(/seam/)).not.toBeInTheDocument();
+
+    const select = screen.getByLabelText(/^Time zone/);
+    await userEvent.selectOptions(select, 'Europe/London');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /moves when this team.s periods roll over.*reports will show a seam/s,
+    );
+
+    // Putting it back removes the warning: nothing is changing after all.
+    await userEvent.selectOptions(select, '');
+    expect(screen.queryByText(/seam/)).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(select, 'Europe/London');
+    await userEvent.click(screen.getByRole('button', { name: 'Save team' }));
+    await waitFor(() =>
+      expect(api.updateTeam).toHaveBeenCalledWith('t1', {
+        name: 'Platform',
+        description: 'Infra',
+        timezone: 'Europe/London',
+      }),
     );
   });
 

@@ -29,8 +29,17 @@ export const NewTeam: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.type(await canvas.findByLabelText(/^Name/), 'Security');
     await userEvent.click(canvas.getByRole('button', { name: 'Create team' }));
-    await waitFor(() => expect(api.createTeam).toHaveBeenCalledWith('Security', '', 3));
+    await waitFor(() => expect(api.createTeam).toHaveBeenCalledWith('Security', '', 3, ''));
     await waitFor(() => expect(teamSaved).toHaveBeenCalled());
+  },
+};
+
+export const EditTeamZoneWarning: Story = {
+  render: () => <TeamDialog team={platform} defaultTimezone="America/New_York" onClose={fn()} onSaved={fn()} />,
+  play: async ({ canvas, userEvent }) => {
+    await expect(canvas.queryByText(/seam/)).not.toBeInTheDocument();
+    await userEvent.selectOptions(await canvas.findByLabelText(/^Time zone/), 'Asia/Tokyo');
+    await expect(await canvas.findByRole('status')).toHaveTextContent(/reports will show a seam/);
   },
 };
 

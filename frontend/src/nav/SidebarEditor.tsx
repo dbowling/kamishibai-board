@@ -25,6 +25,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import type { ArchivedNav } from '../boards/useBoards';
 import { api, errorMessage } from '../lib/api';
+import { useInstanceTimezone } from '../lib/useInstanceTimezone';
 import type { BoardRecord, TeamRecord } from '../lib/types';
 import { BoardDialog } from './BoardDialog';
 import type { MoveRequest } from './BoardDialog';
@@ -86,6 +87,7 @@ export function SidebarEditor({ teams, archived, onChanged }: SidebarEditorProps
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const instanceZone = useInstanceTimezone();
 
   // Server data wins whenever it arrives: after every refresh, and after a
   // rollback has been re-fetched.
@@ -217,6 +219,9 @@ export function SidebarEditor({ teams, archived, onChanged }: SidebarEditorProps
     onChanged();
   }
 
+  // A team without a zone of its own runs on the instance default.
+  const teamZone = (id: string) =>
+    layout.find((entry) => entry.team.id === id)?.team.timezone || instanceZone;
   const teamName = (id: string) => layout.find((entry) => entry.team.id === id)?.team.name ?? 'team';
   const boardName = (id: string) =>
     layout.flatMap((entry) => entry.boards).find((board) => board.id === id)?.name ?? 'board';
@@ -376,6 +381,7 @@ export function SidebarEditor({ teams, archived, onChanged }: SidebarEditorProps
       {dialog?.kind === 'newTeam' && (
         <TeamDialog
           nextSortOrder={nextSortOrder(layout.map((entry) => entry.team.sort_order))}
+          defaultTimezone={instanceZone}
           onClose={closeDialog}
           onSaved={() => {
             closeDialog();
@@ -387,6 +393,7 @@ export function SidebarEditor({ teams, archived, onChanged }: SidebarEditorProps
       {dialog?.kind === 'editTeam' && (
         <TeamDialog
           team={dialog.team}
+          defaultTimezone={instanceZone}
           onClose={closeDialog}
           onSaved={() => {
             closeDialog();
@@ -471,10 +478,23 @@ export function SidebarEditor({ teams, archived, onChanged }: SidebarEditorProps
             <strong>{teamName(dialog.move.fromTeamId)}</strong> lose access to the board unless they
             are also on <strong>{teamName(dialog.move.toTeamId)}</strong>.
           </p>
+          {zonesDiffer(teamZone(dialog.move.fromTeamId), teamZone(dialog.move.toTeamId)) && (
+            <p className="field__warning">
+              The two teams use different time zones ({teamZone(dialog.move.fromTeamId)} and{' '}
+              {teamZone(dialog.move.toTeamId)}). From the move on, this board&rsquo;s periods roll
+              over in {teamZone(dialog.move.toTeamId)}. Past records and reports keep the
+              boundaries they were recorded with, so reports will show a seam where it moved.
+            </p>
+          )}
         </ConfirmDialog>
       )}
     </div>
   );
+}
+
+/** True when both zones are known and they are not the same. */
+function zonesDiffer(from: string | null | undefined, to: string | null | undefined): boolean {
+  return Boolean(from) && Boolean(to) && from !== to;
 }
 
 function SortableTeam({

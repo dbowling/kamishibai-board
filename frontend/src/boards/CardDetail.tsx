@@ -14,6 +14,8 @@ interface CardDetailProps {
   onReopen: (card: Card, notes: string) => void;
   onArchive: (card: Card) => void;
   onRestore: (card: Card) => void;
+  /** The viewer's display zone for timestamps. Omit for the browser's. */
+  timeZone?: string;
 }
 
 /**
@@ -33,6 +35,7 @@ export function CardDetail({
   onReopen,
   onArchive,
   onRestore,
+  timeZone,
 }: CardDetailProps) {
   const [notes, setNotes] = useState(card.state.notes ?? '');
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -93,7 +96,9 @@ export function CardDetail({
             </h2>
             <p className={`drawer__status drawer__status--${card.state.status}`}>
               {statusLabel(card.state.status)}
-              {describeAttribution(card) && <span> · {describeAttribution(card)}</span>}
+              {describeAttribution(card, timeZone) && (
+                <span> · {describeAttribution(card, timeZone)}</span>
+              )}
             </p>
           </div>
 
@@ -180,7 +185,7 @@ export function CardDetail({
           {card.archived ? (
             <>
               <p className="drawer__archived">
-                Archived{card.archivedAt ? ` on ${dateTime(card.archivedAt)}` : ''}. Its history is
+                Archived{card.archivedAt ? ` on ${dateTime(card.archivedAt, timeZone)}` : ''}. Its history is
                 kept.
               </p>
               {canRestore ? (

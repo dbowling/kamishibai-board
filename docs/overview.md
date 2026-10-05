@@ -21,7 +21,8 @@ the history kept.
 **Recurring cards on five cadences.** Daily, weekly, monthly, quarterly and
 annual. A card resets to not-started when its period rolls over: daily at
 midnight, weekly on Monday, monthly on the 1st, quarterly on the 1st of January,
-April, July and October, annually on 1 January.
+April, July and October, annually on 1 January. "Midnight" is the team's: each team
+has its own timezone, inheriting the instance default when it has not set one.
 
 **A board everyone shares.** There is one board state, not one per person. When a
 teammate marks a card done, it changes on your screen within a second, without a

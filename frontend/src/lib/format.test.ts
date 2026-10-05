@@ -1,12 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   cadenceLabel,
+  clockTime,
+  dateTime,
   msUntilNextBoundary,
   percent,
   periodKeyLabel,
   periodKeyShortLabel,
   statusLabel,
   timeUntil,
+  timeZoneOptions,
 } from './format';
 import type { Period } from './types';
 
@@ -34,6 +37,93 @@ describe('periodKeyLabel', () => {
   it('passes an unrecognised key through rather than throwing', () => {
     expect(periodKeyLabel('nonsense')).toBe('nonsense');
     expect(periodKeyLabel('')).toBe('');
+  });
+});
+
+describe('period key labels are calendar labels, not instants', () => {
+  // Kiritimati is UTC+14, the furthest east of any zone. Formatting a day in it
+  // is where a label built from an instant would slip to the next day.
+  const KIRITIMATI = 'Pacific/Kiritimati';
+  const PAGO_PAGO = 'Pacific/Pago_Pago'; // UTC-11, the furthest west
+
+  const realFormat = Date.prototype.toLocaleDateString;
+  afterEach(() => {
+    Date.prototype.toLocaleDateString = realFormat;
+  });
+
+  /** Runs the label with the viewer's zone forced to `zone`, as if the browser were there. */
+  function labelAsSeenFrom(zone: string, key: string): string {
+    Date.prototype.toLocaleDateString = function (
+      this: Date,
+      locales?: Intl.LocalesArgument,
+      options?: Intl.DateTimeFormatOptions,
+    ) {
+      // A caller that pins its own timeZone is immune to the viewer's; one that
+      // leaves it unset picks up the viewer's zone, which is what is simulated.
+      return realFormat.call(this, locales, { timeZone: zone, ...options });
+    } as typeof Date.prototype.toLocaleDateString;
+    return periodKeyLabel(key);
+  }
+
+  it('labels a daily key as that day whatever zone the viewer is in', () => {
+    for (const zone of [KIRITIMATI, PAGO_PAGO, 'UTC', 'America/New_York']) {
+      const label = labelAsSeenFrom(zone, '2026-10-05');
+      expect(label, zone).toContain('5');
+      expect(label, zone).toContain('Oct');
+      expect(label, zone).toMatch(/Mon/);
+    }
+  });
+
+  it('labels a monthly key as that month whatever zone the viewer is in', () => {
+    for (const zone of [KIRITIMATI, PAGO_PAGO]) {
+      expect(labelAsSeenFrom(zone, '2026-M10'), zone).toContain('October');
+    }
+  });
+});
+
+describe('dateTime', () => {
+  const instant = '2026-10-05T20:00:00-04:00'; // 09:00 on the 6th in Tokyo
+
+  it('renders the instant in the zone it is given', () => {
+    const tokyo = dateTime(instant, 'Asia/Tokyo');
+    expect(tokyo).toContain('6');
+    expect(tokyo).toContain('09:00');
+
+    const newYork = dateTime(instant, 'America/New_York');
+    expect(newYork).toContain('5');
+    // 12-hour or 24-hour depending on the test locale.
+    expect(newYork).toMatch(/(08:00 PM|20:00)/);
+  });
+
+  it('is the same instant either way, only written differently', () => {
+    expect(dateTime(instant, 'Asia/Tokyo')).not.toBe(dateTime(instant, 'America/New_York'));
+  });
+
+  it('falls back to the browser zone for a zone the runtime rejects', () => {
+    expect(dateTime(instant, 'Mars/Base')).toBe(dateTime(instant));
+  });
+
+  it('is empty for nothing or nonsense', () => {
+    expect(dateTime(undefined, 'Asia/Tokyo')).toBe('');
+    expect(dateTime('not a date', 'Asia/Tokyo')).toBe('');
+  });
+});
+
+describe('clockTime', () => {
+  it('gives midnight in one zone as the right wall clock in another', () => {
+    // Midnight ending 2026-10-05 in New York (EDT) is 13:00 in Tokyo.
+    const end = '2026-10-06T00:00:00-04:00';
+    expect(clockTime(end, 'America/New_York')).toBe('00:00');
+    expect(clockTime(end, 'Asia/Tokyo')).toBe('13:00');
+  });
+});
+
+describe('timeZoneOptions', () => {
+  it('is sorted, includes UTC, and always keeps the stored value', () => {
+    const zones = timeZoneOptions('Mars/Base');
+    expect(zones).toContain('UTC');
+    expect(zones).toContain('Mars/Base');
+    expect(zones).toEqual([...zones].sort((a, b) => a.localeCompare(b)));
   });
 });
 

@@ -62,6 +62,22 @@ func TestUsersCollectionExtended(t *testing.T) {
 	assertRuleNil(t, "users.Delete", users.DeleteRule)
 }
 
+// Both zones are optional: an empty team zone inherits the instance default (so no
+// existing team changes behaviour) and an empty user zone means "use the browser's".
+func TestTimezoneFieldsAreOptionalText(t *testing.T) {
+	app := testutil.NewApp(t)
+
+	for _, name := range []string{schema.Teams, schema.Users} {
+		field, ok := testutil.Collection(t, app, name).Fields.GetByName(schema.FieldTimezone).(*core.TextField)
+		if !ok {
+			t.Fatalf("%s.%s is not a text field", name, schema.FieldTimezone)
+		}
+		if field.Required {
+			t.Errorf("%s.%s should not be required; empty must inherit", name, schema.FieldTimezone)
+		}
+	}
+}
+
 func TestArchiveNotDeleteIsEnforcedBySchema(t *testing.T) {
 	app := testutil.NewApp(t)
 

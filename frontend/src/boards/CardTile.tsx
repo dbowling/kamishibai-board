@@ -9,6 +9,8 @@ interface CardTileProps {
   onStart: (card: Card) => void;
   onComplete: (card: Card) => void;
   onReopen: (card: Card) => void;
+  /** The viewer's display zone for timestamps. Omit for the browser's. */
+  timeZone?: string;
 }
 
 /**
@@ -20,12 +22,20 @@ interface CardTileProps {
  * anybody who cannot distinguish red from green, which is a lot of people on a
  * typical team.
  */
-export function CardTile({ card, busy, onOpen, onStart, onComplete, onReopen }: CardTileProps) {
+export function CardTile({
+  card,
+  busy,
+  onOpen,
+  onStart,
+  onComplete,
+  onReopen,
+  timeZone,
+}: CardTileProps) {
   const { state } = card;
   const flipping = useFlipOnStatusChange(state.status);
 
   const headingId = `card-${card.id}-title`;
-  const attribution = describeAttribution(card);
+  const attribution = describeAttribution(card, timeZone);
 
   return (
     <li
@@ -65,7 +75,13 @@ export function CardTile({ card, busy, onOpen, onStart, onComplete, onReopen }: 
             <dd>
               {card.period.key}
               {state.status !== 'done' && (
-                <span className="card__deadline"> · {timeUntil(card.period.end)}</span>
+                <span
+                  className="card__deadline"
+                  title={`Closes ${dateTime(card.period.end, timeZone)}`}
+                >
+                  {' '}
+                  · {timeUntil(card.period.end)}
+                </span>
               )}
             </dd>
           </div>
@@ -79,7 +95,7 @@ export function CardTile({ card, busy, onOpen, onStart, onComplete, onReopen }: 
 
         {card.archived ? (
           <p className="card__archived-note">
-            Archived{card.archivedAt ? ` on ${dateTime(card.archivedAt)}` : ''} · read-only
+            Archived{card.archivedAt ? ` on ${dateTime(card.archivedAt, timeZone)}` : ''} · read-only
           </p>
         ) : (
           <div className="card__actions">
@@ -157,13 +173,17 @@ function useFlipOnStatusChange(status: Status): boolean {
   return flipping;
 }
 
-/** A short sentence naming who did what, or '' when nothing has happened yet. */
-export function describeAttribution(card: Card): string {
+/**
+ * A short sentence naming who did what, or '' when nothing has happened yet.
+ * Times are shown in `timeZone` (the viewer's display zone), defaulting to the
+ * browser's.
+ */
+export function describeAttribution(card: Card, timeZone?: string): string {
   const { startedBy, completedBy, startedAt, completedAt } = card.state;
 
   if (card.state.status === 'done') {
     const who = completedBy?.name || completedBy?.email || 'someone';
-    const when = dateTime(completedAt);
+    const when = dateTime(completedAt, timeZone);
     // Only mention the starter when it was a different person, otherwise the
     // sentence reads oddly ("done by Dana, started by Dana").
     const starter = startedBy && completedBy && startedBy.id !== completedBy.id ? startedBy.name : '';
@@ -173,7 +193,7 @@ export function describeAttribution(card: Card): string {
 
   if (card.state.status === 'in_progress') {
     const who = startedBy?.name || startedBy?.email || 'someone';
-    const when = dateTime(startedAt);
+    const when = dateTime(startedAt, timeZone);
     return `Started by ${who}${when ? ` · ${when}` : ''}`;
   }
 
