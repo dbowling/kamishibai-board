@@ -6,6 +6,7 @@ import type { Cadence, Card } from '../lib/types';
 import { useAuth } from '../auth/AuthProvider';
 import { CardDetail } from './CardDetail';
 import { CardTile } from './CardTile';
+import { matchesQuery } from './filterCards';
 import { NewCardDialog } from './NewCardDialog';
 import { useBoardState } from './useBoardState';
 
@@ -24,12 +25,16 @@ export function BoardPage({ boardId }: BoardPageProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [cadenceFilter, setCadenceFilter] = useState<Cadence | 'all'>('all');
+  const [query, setQuery] = useState('');
 
   const cards = state?.cards ?? [];
 
   const visibleCards = useMemo(
-    () => (cadenceFilter === 'all' ? cards : cards.filter((c) => c.cadence === cadenceFilter)),
-    [cards, cadenceFilter],
+    () =>
+      cards.filter(
+        (c) => (cadenceFilter === 'all' || c.cadence === cadenceFilter) && matchesQuery(c, query),
+      ),
+    [cards, cadenceFilter, query],
   );
 
   // Grouped by cadence so the board reads like a kamishibai wall: the things due
@@ -162,6 +167,21 @@ export function BoardPage({ boardId }: BoardPageProps) {
       <div className="board__toolbar">
         <div className="board__filters">
           <label className="field field--inline">
+            <span className="field__label">Filter</span>
+            <input
+              className="field__input"
+              type="search"
+              placeholder="Title or summary"
+              autoComplete="off"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && query !== '') setQuery('');
+              }}
+            />
+          </label>
+
+          <label className="field field--inline">
             <span className="field__label">Cadence</span>
             <select
               className="field__input"
@@ -220,14 +240,36 @@ export function BoardPage({ boardId }: BoardPageProps) {
       </p>
 
       {grouped.length === 0 ? (
-        <div className="panel">
-          <p>No cards yet.</p>
-          {!state.board.archived && (
-            <button className="button button--primary" type="button" onClick={() => setCreating(true)}>
-              Add the first card
+        cards.length > 0 ? (
+          // The board has cards but the filters hid them all, so offer a way back
+          // rather than the "add the first card" prompt.
+          <div className="panel">
+            <p>
+              {query.trim() !== ''
+                ? `No cards match “${query.trim()}”.`
+                : 'No cards match these filters.'}
+            </p>
+            <button
+              className="button button--quiet"
+              type="button"
+              onClick={() => {
+                setQuery('');
+                setCadenceFilter('all');
+              }}
+            >
+              Clear filters
             </button>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="panel">
+            <p>No cards yet.</p>
+            {!state.board.archived && (
+              <button className="button button--primary" type="button" onClick={() => setCreating(true)}>
+                Add the first card
+              </button>
+            )}
+          </div>
+        )
       ) : (
         grouped.map((group) => (
           <section className="board__group" key={group.cadence} aria-labelledby={`group-${group.cadence}`}>
