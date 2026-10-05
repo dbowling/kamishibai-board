@@ -11,12 +11,16 @@
 //     its history; admins move boards through internal/navigation instead
 //   - created_by is stamped by the server and then immutable
 //   - archiving stamps who did it; restoring is admin-only
+//   - a time zone, on a team or a user, is a real IANA name or empty
 package hooks
 
 import (
+	"strings"
+
 	"github.com/pocketbase/pocketbase/core"
 
 	"github.com/dbowling/kamishibai/backend/internal/access"
+	"github.com/dbowling/kamishibai/backend/internal/domain"
 	"github.com/dbowling/kamishibai/backend/internal/schema"
 )
 
@@ -49,6 +53,14 @@ func registerUserHooks(app core.App) {
 	// Without this, "edit your own record" would also mean "set your own role to
 	// admin", which would hand any user access to every team.
 	app.OnRecordUpdateRequest(schema.Users).BindFunc(func(e *core.RecordRequestEvent) error {
+		// Checked before the superuser shortcut below: a malformed zone is bad
+		// data whoever sends it. A user's zone only affects how times are
+		// displayed to them, so there is no permission question here, just
+		// validity.
+		if err := normaliseTimezone(e); err != nil {
+			return err
+		}
+
 		if e.HasSuperuserAuth() {
 			return e.Next()
 		}
@@ -68,11 +80,20 @@ func registerUserHooks(app core.App) {
 func registerTeamHooks(app core.App) {
 	app.OnRecordCreateRequest(schema.Teams).BindFunc(func(e *core.RecordRequestEvent) error {
 		stampCreatedBy(e)
+		if err := normaliseTimezone(e); err != nil {
+			return err
+		}
 		return e.Next()
 	})
 
+	// Who may change a team's zone needs no check of its own here: the teams
+	// update rule is AdminOnly, so a non-admin never reaches this hook. That
+	// matters, because the zone decides when the team's periods roll over.
 	app.OnRecordUpdateRequest(schema.Teams).BindFunc(func(e *core.RecordRequestEvent) error {
 		preserveCreatedBy(e)
+		if err := normaliseTimezone(e); err != nil {
+			return err
+		}
 		if err := guardArchiveTransition(e); err != nil {
 			return err
 		}
@@ -216,6 +237,26 @@ func forbidTeamChange(e *core.RecordRequestEvent) error {
 	previous := e.Record.Original().GetString(schema.FieldTeam)
 	if previous != "" && e.Record.GetString(schema.FieldTeam) != previous {
 		return e.BadRequestError("Records cannot be moved between teams, because their history is attributed to the original team.", nil)
+	}
+	return nil
+}
+
+// normaliseTimezone trims a record's timezone and rejects anything that is not an
+// IANA name this binary can load. Empty is valid: it means "inherit" on a team
+// and "use the browser's zone" on a user.
+//
+// Validating on the way in is what lets the rest of the code treat a stored team
+// zone that fails to load as a bug worth surfacing, rather than as expected input
+// to be quietly papered over.
+func normaliseTimezone(e *core.RecordRequestEvent) error {
+	zone := strings.TrimSpace(e.Record.GetString(schema.FieldTimezone))
+	e.Record.Set(schema.FieldTimezone, zone)
+
+	if zone == "" {
+		return nil
+	}
+	if err := domain.ValidTimezone(zone); err != nil {
+		return e.BadRequestError("Invalid time zone: "+err.Error()+".", err)
 	}
 	return nil
 }

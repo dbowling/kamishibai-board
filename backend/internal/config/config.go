@@ -23,11 +23,13 @@ const (
 
 // Defaults.
 const (
-	// DefaultRollupCron runs shortly after midnight in the board's own
-	// timezone. Every cadence rolls over at local midnight, so a single daily
-	// run catches daily, weekly (Monday), monthly, quarterly and annual
-	// closures alike.
-	DefaultRollupCron = "10 0 * * *"
+	// DefaultRollupCron runs ten minutes past every hour. Teams can have their
+	// own timezone, and every cadence rolls over at local midnight, so some team's
+	// midnight falls in almost every hour of the day. Running hourly means each
+	// team's closed periods are rolled up within about an hour of its own
+	// midnight rather than waiting for the instance default's. The job is an
+	// idempotent upsert over a bounded window, so the extra runs are cheap.
+	DefaultRollupCron = "10 * * * *"
 
 	// DefaultRollupLookback is how many closed periods back the job checks for
 	// a missing snapshot on each run. This is what makes the job self-healing:
@@ -41,15 +43,20 @@ const (
 
 // Config is the resolved application configuration.
 type Config struct {
-	// Timezone is the IANA name all period boundaries are evaluated in.
+	// Timezone is the instance default IANA name: the zone period boundaries are
+	// evaluated in for any team that has not set its own.
 	Timezone string
 
-	// Calendar is built from Timezone and is the single source of truth for
-	// period arithmetic.
+	// Calendar is built from Timezone. It is the instance default, not the
+	// calendar for any particular team; use Calendars to resolve those.
 	Calendar *domain.Calendar
 
+	// Calendars resolves a team's timezone to a Calendar, falling back to
+	// Calendar when the team's is empty.
+	Calendars *domain.Calendars
+
 	// RollupCron is the crontab expression for the rollup job, interpreted in
-	// Timezone.
+	// Timezone. The job covers every team's zone, not only that one.
 	RollupCron string
 
 	// RollupLookback is how many closed periods to check per run.
@@ -76,6 +83,7 @@ func FromEnv() (Config, error) {
 		return Config{}, fmt.Errorf("%s: %w", EnvTimezone, err)
 	}
 	cfg.Calendar = cal
+	cfg.Calendars = domain.NewCalendars(cal)
 
 	if raw := os.Getenv(EnvRollupLookback); raw != "" {
 		n, err := strconv.Atoi(strings.TrimSpace(raw))
@@ -101,6 +109,7 @@ func Default() Config {
 	return Config{
 		Timezone:       domain.DefaultTimezone,
 		Calendar:       cal,
+		Calendars:      domain.NewCalendars(cal),
 		RollupCron:     DefaultRollupCron,
 		RollupLookback: DefaultRollupLookback,
 		PublicDir:      DefaultPublicDir,
