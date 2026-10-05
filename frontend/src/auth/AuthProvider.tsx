@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { browserTimeZone } from '../lib/format';
 import { pb } from '../lib/pocketbase';
 import type { CurrentUser } from '../lib/types';
 
@@ -24,6 +25,7 @@ function toCurrentUser(record: unknown): CurrentUser | null {
     // Anything other than 'admin' is an ordinary user, matching the backend's
     // fail-closed treatment of an absent role.
     role: r.role === 'admin' ? 'admin' : 'user',
+    timezone: typeof r.timezone === 'string' ? r.timezone : '',
   };
 }
 
@@ -62,4 +64,18 @@ export function useAuth(): AuthContextValue {
     throw new Error('useAuth must be used inside an AuthProvider');
   }
   return context;
+}
+
+/**
+ * The zone to render instants in: the signed-in user's own choice, or the
+ * browser's when they have not made one.
+ *
+ * Display only. It must never feed anything that decides which period a card is
+ * in, because that is the team's zone and the server's call. Unlike useAuth it
+ * does not throw outside an AuthProvider, so components that merely format a time
+ * can still be rendered on their own.
+ */
+export function useDisplayTimeZone(): string {
+  const user = useContext(AuthContext)?.user;
+  return user?.timezone || browserTimeZone();
 }

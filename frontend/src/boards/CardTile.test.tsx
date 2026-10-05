@@ -136,6 +136,16 @@ describe('describeAttribution', () => {
     expect(describeAttribution(card)).toContain('Started by Raj');
   });
 
+  it('writes the time in the viewer display zone', () => {
+    const card = makeCard(
+      {},
+      { status: 'done', completedBy: user('Mei'), completedAt: '2026-10-05T20:00:00-04:00' },
+    );
+    // The same completion, 20:00 in New York and 09:00 the next day in Tokyo.
+    expect(describeAttribution(card, 'America/New_York')).toMatch(/(08:00 PM|20:00)/);
+    expect(describeAttribution(card, 'Asia/Tokyo')).toContain('09:00');
+  });
+
   it('names the completer when done', () => {
     const card = makeCard({}, { status: 'done', completedBy: user('Mei') });
     expect(describeAttribution(card)).toContain('Done by Mei');

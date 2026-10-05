@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
-import { cadenceLabel, percent } from '../lib/format';
+import { cadenceLabel, clockTime, percent } from '../lib/format';
 import { CADENCES } from '../lib/types';
 import type { Cadence, Card } from '../lib/types';
-import { useAuth } from '../auth/AuthProvider';
+import { useAuth, useDisplayTimeZone } from '../auth/AuthProvider';
 import { CardDetail } from './CardDetail';
 import { CardTile } from './CardTile';
 import { matchesQuery } from './filterCards';
@@ -16,6 +16,7 @@ interface BoardPageProps {
 
 export function BoardPage({ boardId }: BoardPageProps) {
   const { isAdmin } = useAuth();
+  const displayZone = useDisplayTimeZone();
   const { state, error, loading, refresh, includeArchived, setIncludeArchived } =
     useBoardState(boardId);
 
@@ -133,6 +134,18 @@ export function BoardPage({ boardId }: BoardPageProps) {
 
   const { summary } = state;
 
+  // Periods follow the team's clock, which may not be the viewer's. When the two
+  // differ, say what midnight there is here, taken from the daily period's real
+  // end so daylight saving is already accounted for. It is skipped when the
+  // clock reads the same in both (two names for one offset).
+  const dailyEnd = state.periods.daily?.end;
+  const teamMidnight = clockTime(dailyEnd, state.timezone);
+  const yourMidnight = clockTime(dailyEnd, displayZone);
+  const yourTime =
+    displayZone !== state.timezone && yourMidnight !== '' && yourMidnight !== teamMidnight
+      ? ` (${yourMidnight} your time)`
+      : '';
+
   return (
     <div className="board">
       <header className="board__header">
@@ -224,7 +237,8 @@ export function BoardPage({ boardId }: BoardPageProps) {
       </div>
 
       <p className="board__timezone">
-        Periods roll over at midnight, {state.timezone}. Everyone sees the same board.
+        Periods roll over at midnight, {state.timezone}
+        {yourTime}. Everyone on the team sees the same board.
       </p>
 
       {actionError && (
@@ -287,6 +301,7 @@ export function BoardPage({ boardId }: BoardPageProps) {
                   onStart={(c) => void run(c, 'start')}
                   onComplete={(c) => void run(c, 'complete')}
                   onReopen={(c) => void run(c, 'reopen')}
+                  timeZone={displayZone}
                 />
               ))}
             </ul>
@@ -308,6 +323,7 @@ export function BoardPage({ boardId }: BoardPageProps) {
           onReopen={(card, notes) => void run(card, 'reopen', notes)}
           onArchive={(card) => void archive(card)}
           onRestore={(card) => void restore(card)}
+          timeZone={displayZone}
         />
       )}
 

@@ -154,7 +154,7 @@ export interface Report {
 /**
  * One (day, cadence) bucket of the completions heatmap.
  *
- * `date` is YYYY-MM-DD in the board's timezone, already bucketed by the server.
+ * `date` is YYYY-MM-DD in the owning team's timezone, already bucketed by the server.
  * The browser must not re-bucket timestamps itself.
  */
 export interface ActivityDay {
@@ -183,6 +183,12 @@ export interface TeamRecord {
   /** Ascending display order in the sidebar. */
   sort_order: number;
   archived_at: string;
+  /**
+   * The IANA zone this team's periods roll over in. Empty or absent means it
+   * inherits the instance default, so the effective zone is never read from here
+   * alone: boards and reports carry the resolved `timezone`.
+   */
+  timezone?: string;
 }
 
 export interface BoardRecord {
@@ -215,6 +221,11 @@ export interface CurrentUser {
   name: string;
   email: string;
   role: string;
+  /**
+   * The zone this person wants times displayed in. Display only: it never
+   * changes period keys or what the server computes. Empty means the browser's.
+   */
+  timezone?: string;
 }
 
 export function isAdmin(user: CurrentUser | null): boolean {

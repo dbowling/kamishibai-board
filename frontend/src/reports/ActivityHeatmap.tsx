@@ -34,7 +34,7 @@ const COLOR_RANGES = [1, 3, 5, 8].map((minimum, index) => ({
  * Completions per calendar day, drawn by Heat.js.
  *
  * Pure presentation: the server has already bucketed each completion into a day
- * in the board's timezone, so nothing here re-buckets timestamps or does date
+ * in the owning team's timezone, so nothing here re-buckets timestamps or does date
  * arithmetic beyond turning a YYYY-MM-DD string into a Date.
  *
  * Heat.js draws plain divs with hover tooltips and no text alternative, so the

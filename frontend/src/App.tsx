@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from './auth/AuthProvider';
 import { LoginPage } from './auth/LoginPage';
+import { TimeZoneDialog } from './auth/TimeZoneDialog';
 import { BoardPage } from './boards/BoardPage';
 import { useBoards } from './boards/useBoards';
 import { Sidebar } from './nav/Sidebar';
@@ -21,6 +22,7 @@ function Shell() {
   // Admin-only: whether the sidebar is in edit mode. Archived teams and boards are
   // only fetched while it is, so everyone else's requests are unchanged.
   const [editing, setEditing] = useState(false);
+  const [choosingZone, setChoosingZone] = useState(false);
   const { teams, archived, loading, error, refresh } = useBoards(isAdmin && editing);
   const { route, navigate } = useRouter();
 
@@ -65,11 +67,26 @@ function Shell() {
             {user?.name || user?.email}
             {isAdmin && <span className="badge badge--admin">admin</span>}
           </span>
+          <button
+            className="button button--quiet"
+            type="button"
+            onClick={() => setChoosingZone(true)}
+          >
+            Time zone
+          </button>
           <button className="button button--quiet" type="button" onClick={signOut}>
             Sign out
           </button>
         </div>
       </header>
+
+      {choosingZone && user && (
+        <TimeZoneDialog
+          userId={user.id}
+          current={user.timezone ?? ''}
+          onClose={() => setChoosingZone(false)}
+        />
+      )}
 
       <div className="layout">
         <Sidebar

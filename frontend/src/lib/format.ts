@@ -43,17 +43,24 @@ export function statusLabel(status: Status): string {
  * they are expanded for display. Parsing is deliberately tolerant: an unknown
  * shape is shown as-is rather than throwing, because a label is never worth
  * breaking a screen over.
+ *
+ * A key names a calendar day, week or month, not an instant, so no viewer's time
+ * zone may move it. The date is therefore built and formatted in UTC: building it
+ * in local time and formatting in local time happens to round-trip, but any
+ * formatting zone other than the one it was built in (for example one a long way
+ * east, where midnight UTC is already tomorrow) would shift the day.
  */
 export function periodKeyLabel(key: string): string {
   const daily = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
   if (daily) {
     const [, year, month, day] = daily;
-    const date = new Date(Number(year), Number(month) - 1, Number(day));
+    const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
     return date.toLocaleDateString(undefined, {
       weekday: 'short',
       day: 'numeric',
       month: 'short',
       year: 'numeric',
+      timeZone: 'UTC',
     });
   }
 
@@ -64,8 +71,8 @@ export function periodKeyLabel(key: string): string {
 
   const monthly = /^(\d{4})-M(\d{2})$/.exec(key);
   if (monthly) {
-    const date = new Date(Number(monthly[1]), Number(monthly[2]) - 1, 1);
-    return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    const date = new Date(Date.UTC(Number(monthly[1]), Number(monthly[2]) - 1, 1));
+    return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
   }
 
   const quarterly = /^(\d{4})-Q([1-4])$/.exec(key);
@@ -104,17 +111,109 @@ export function percent(rate: number): string {
   return `${Math.round(rate * 100)}%`;
 }
 
-/** Formats an ISO timestamp as a local date and time, or '' when absent. */
-export function dateTime(iso: string | undefined): string {
+/** The browser's own IANA zone, which is what a person sees with no preference set. */
+export function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+/**
+ * Runs a formatter in `timeZone`, falling back to the browser's zone if the
+ * runtime rejects the name. A stale or unsupported stored preference should cost
+ * someone their preferred zone, not break the screen that shows a timestamp.
+ */
+function inZone(timeZone: string | undefined, format: (zone: string | undefined) => string): string {
+  if (!timeZone) return format(undefined);
+  try {
+    return format(timeZone);
+  } catch (error) {
+    if (error instanceof RangeError) return format(undefined);
+    throw error;
+  }
+}
+
+/**
+ * Formats an ISO timestamp as a date and time, or '' when absent.
+ *
+ * `timeZone` is the viewer's display zone. It only changes how the instant is
+ * written; omit it for the browser's own zone. It is not for period keys, which
+ * are calendar labels (see periodKeyLabel).
+ */
+export function dateTime(iso: string | undefined, timeZone?: string): string {
   if (!iso) return '';
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return inZone(timeZone, (zone) =>
+    date.toLocaleString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: zone,
+    }),
+  );
+}
+
+/** Formats just the clock time of an ISO timestamp (24-hour, "09:00") in `timeZone`. */
+export function clockTime(iso: string | undefined, timeZone?: string): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return inZone(timeZone, (zone) =>
+    date.toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+      timeZone: zone,
+    }),
+  );
+}
+
+/** A small fallback for runtimes without Intl.supportedValuesOf. */
+const COMMON_TIME_ZONES = [
+  'UTC',
+  'America/Los_Angeles',
+  'America/Denver',
+  'America/Chicago',
+  'America/New_York',
+  'America/Sao_Paulo',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Africa/Johannesburg',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Singapore',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+  'Pacific/Auckland',
+];
+
+/**
+ * The IANA zones to offer in a picker, alphabetically, always including `keep`
+ * (the value already stored) so editing a record never silently drops its zone.
+ *
+ * `Intl.supportedValuesOf` is missing from older browsers and some test
+ * runtimes, hence the guard. "UTC" is added because some engines leave it out of
+ * the list although the backend accepts it.
+ */
+export function timeZoneOptions(keep?: string): string[] {
+  let zones: string[] = [];
+  try {
+    const supported = (Intl as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
+    zones = supported ? supported('timeZone') : [];
+  } catch {
+    zones = [];
+  }
+  if (zones.length === 0) zones = COMMON_TIME_ZONES;
+
+  const all = new Set(zones);
+  all.add('UTC');
+  if (keep) all.add(keep);
+  return [...all].sort((a, b) => a.localeCompare(b));
 }
 
 /**
