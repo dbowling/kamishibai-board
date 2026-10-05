@@ -55,12 +55,14 @@ func registerCron(app core.App, cfg config.Config) {
 			return err
 		}
 
-		// Align the scheduler with the board's timezone. Every cadence rolls over
-		// at local midnight, and without this the job would fire on the
-		// container's clock, which is usually UTC.
+		// Align the scheduler with the instance default timezone, so a custom
+		// schedule written in local terms means what it says rather than following
+		// the container's clock, which is usually UTC. The default schedule is
+		// hourly and so does not depend on this, but teams have their own zones and
+		// each is handled inside the job by its own calendar.
 		app.Cron().SetTimezone(cfg.Calendar.Location())
 
-		service := rollup.NewService(cfg.Calendar)
+		service := rollup.NewServiceWithCalendars(cfg.Calendars)
 
 		app.Cron().MustAdd(RollupJobID, cfg.RollupCron, func() {
 			report, err := service.Run(app, cfg.RollupLookback)

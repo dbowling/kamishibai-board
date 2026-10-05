@@ -26,6 +26,7 @@ import (
 	"github.com/dbowling/kamishibai/backend/internal/access"
 	"github.com/dbowling/kamishibai/backend/internal/domain"
 	"github.com/dbowling/kamishibai/backend/internal/schema"
+	"github.com/dbowling/kamishibai/backend/internal/teamcal"
 )
 
 // Sentinel errors, so callers (chiefly the HTTP layer) can map failures onto
@@ -61,14 +62,24 @@ type State struct {
 }
 
 // Service resolves and mutates card state.
+//
+// A card's period is evaluated in its team's calendar, so the same instant can
+// be 2026-10-05 for one team and 2026-10-06 for another.
 type Service struct {
-	cal *domain.Calendar
-	now func() time.Time
+	cals *domain.Calendars
+	now  func() time.Time
 }
 
-// NewService returns a Service that evaluates periods using cal.
+// NewService returns a Service whose teams all use cal, which is what a team with
+// no timezone of its own gets. Teams that set one are resolved on top of it.
 func NewService(cal *domain.Calendar) *Service {
-	return &Service{cal: cal, now: time.Now}
+	return NewServiceWithCalendars(domain.NewCalendars(cal))
+}
+
+// NewServiceWithCalendars returns a Service that resolves each team's calendar
+// through cals.
+func NewServiceWithCalendars(cals *domain.Calendars) *Service {
+	return &Service{cals: cals, now: time.Now}
 }
 
 // WithClock returns a copy of the service using a custom clock. Tests use it to
@@ -79,16 +90,27 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 	return &clone
 }
 
-// Calendar exposes the calendar the service evaluates periods against.
-func (s *Service) Calendar() *domain.Calendar { return s.cal }
+// Calendar exposes the instance default calendar, which teams without a timezone
+// of their own are evaluated against.
+func (s *Service) Calendar() *domain.Calendar { return s.cals.Default() }
+
+// CalendarForTeam returns the calendar a team's periods are evaluated in.
+func (s *Service) CalendarForTeam(team *core.Record) (*domain.Calendar, error) {
+	return teamcal.For(s.cals, team)
+}
 
 // Now returns the service's current time.
 func (s *Service) Now() time.Time { return s.now() }
 
-// CurrentPeriod returns the period a card is currently in.
-func (s *Service) CurrentPeriod(card *core.Record) (domain.Period, error) {
+// CurrentPeriod returns the period a card is currently in, evaluated in the
+// calendar of the team that owns it.
+func (s *Service) CurrentPeriod(team, card *core.Record) (domain.Period, error) {
+	cal, err := s.CalendarForTeam(team)
+	if err != nil {
+		return domain.Period{}, err
+	}
 	cadence := domain.Cadence(card.GetString(schema.FieldCadence))
-	period, err := s.cal.At(cadence, s.now())
+	period, err := cal.At(cadence, s.now())
 	if err != nil {
 		return domain.Period{}, fmt.Errorf("card %q: %w", card.Id, err)
 	}
@@ -113,10 +135,21 @@ func (s *Service) StateOf(app core.App, card *core.Record) (State, error) {
 // `card IN (...) AND period_key IN (...)` lookup, served by the unique
 // (card, period_key) index. Rendering a board is therefore one query regardless
 // of how many cards it holds.
+//
+// Teams can be in different timezones, so the same instant may put two cards in
+// different periods. The cards' teams are loaded in one further query, rather
+// than one per card. Cards on one board share a team, but this does not rely on
+// that, so a caller passing cards from several boards still gets each evaluated
+// in its own team's calendar.
 func (s *Service) StatesFor(app core.App, cards []*core.Record) (map[string]State, error) {
 	states := make(map[string]State, len(cards))
 	if len(cards) == 0 {
 		return states, nil
+	}
+
+	calendars, err := s.calendarsByTeam(app, cards)
+	if err != nil {
+		return nil, err
 	}
 
 	now := s.now()
@@ -125,7 +158,7 @@ func (s *Service) StatesFor(app core.App, cards []*core.Record) (map[string]Stat
 
 	for _, card := range cards {
 		cadence := domain.Cadence(card.GetString(schema.FieldCadence))
-		period, err := s.cal.At(cadence, now)
+		period, err := calendars[card.GetString(schema.FieldTeam)].At(cadence, now)
 		if err != nil {
 			return nil, fmt.Errorf("card %q: %w", card.Id, err)
 		}
@@ -148,7 +181,7 @@ func (s *Service) StatesFor(app core.App, cards []*core.Record) (map[string]Stat
 	}
 
 	var records []*core.Record
-	err := app.RecordQuery(schema.Occurrences).
+	err = app.RecordQuery(schema.Occurrences).
 		AndWhere(dbx.In(schema.FieldCard, cardIDs...)).
 		AndWhere(dbx.In(schema.FieldPeriodKey, keys...)).
 		All(&records)
@@ -178,6 +211,43 @@ func (s *Service) StatesFor(app core.App, cards []*core.Record) (map[string]Stat
 	}
 
 	return states, nil
+}
+
+// calendarsByTeam resolves the calendar of every distinct team the cards belong
+// to, keyed by team id.
+func (s *Service) calendarsByTeam(app core.App, cards []*core.Record) (map[string]*domain.Calendar, error) {
+	ids := make([]string, 0, 1)
+	seen := make(map[string]struct{}, 1)
+	for _, card := range cards {
+		id := card.GetString(schema.FieldTeam)
+		if id == "" {
+			return nil, fmt.Errorf("card %q has no team", card.Id)
+		}
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+
+	teams, err := app.FindRecordsByIds(schema.Teams, ids)
+	if err != nil {
+		return nil, fmt.Errorf("load teams: %w", err)
+	}
+
+	out := make(map[string]*domain.Calendar, len(teams))
+	for _, team := range teams {
+		cal, err := s.CalendarForTeam(team)
+		if err != nil {
+			return nil, err
+		}
+		out[team.Id] = cal
+	}
+	for _, id := range ids {
+		if out[id] == nil {
+			return nil, fmt.Errorf("team %q not found", id)
+		}
+	}
+	return out, nil
 }
 
 // Find returns the occurrence for a card and period, or nil if none exists.
@@ -348,7 +418,7 @@ func (s *Service) mutateOnce(app core.App, cardID string, user *core.Record, not
 		}
 	}
 
-	period, err := s.CurrentPeriod(card)
+	period, err := s.CurrentPeriod(team, card)
 	if err != nil {
 		return nil, err
 	}

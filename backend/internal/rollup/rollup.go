@@ -23,6 +23,7 @@ import (
 
 	"github.com/dbowling/kamishibai/backend/internal/domain"
 	"github.com/dbowling/kamishibai/backend/internal/schema"
+	"github.com/dbowling/kamishibai/backend/internal/teamcal"
 )
 
 // Snapshot is the computed state of one board, cadence and period.
@@ -63,14 +64,25 @@ type Report struct {
 }
 
 // Service computes and persists snapshots.
+//
+// Which periods have closed depends on whose clock you ask: a day that ended in
+// Tokyo an hour ago is still open in New York. Run therefore evaluates each board
+// in its own team's calendar.
 type Service struct {
-	cal *domain.Calendar
-	now func() time.Time
+	cals *domain.Calendars
+	now  func() time.Time
 }
 
-// NewService returns a Service that evaluates periods using cal.
+// NewService returns a Service whose teams all use cal, which is what a team with
+// no timezone of its own gets. Teams that set one are resolved on top of it.
 func NewService(cal *domain.Calendar) *Service {
-	return &Service{cal: cal, now: time.Now}
+	return NewServiceWithCalendars(domain.NewCalendars(cal))
+}
+
+// NewServiceWithCalendars returns a Service that resolves each team's calendar
+// through cals.
+func NewServiceWithCalendars(cals *domain.Calendars) *Service {
+	return &Service{cals: cals, now: time.Now}
 }
 
 // WithClock returns a copy of the service using a custom clock.
@@ -235,6 +247,11 @@ func (s *Service) Find(app core.App, boardID string, cadence domain.Cadence, per
 // or a period closed while a deploy was rolling, walking back fills the hole
 // instead of leaving a permanent gap in the history. Snapshots are idempotent so
 // the repeated work is harmless.
+//
+// Each board is walked in its team's calendar, so a period that has closed in
+// Tokyo is rolled up for Tokyo's boards while New York's, still open, is left
+// alone until it closes there. Running hourly (see config.DefaultRollupCron) is
+// what keeps the gap between a team's midnight and its snapshot short.
 func (s *Service) Run(app core.App, lookback int) (Report, error) {
 	var report Report
 
@@ -249,13 +266,32 @@ func (s *Service) Run(app core.App, lookback int) (Report, error) {
 		return report, fmt.Errorf("list boards: %w", err)
 	}
 
+	// One query for every team's zone, rather than one per board.
+	teams, err := app.FindAllRecords(schema.Teams)
+	if err != nil {
+		return report, fmt.Errorf("list teams: %w", err)
+	}
+	calendars := make(map[string]*domain.Calendar, len(teams))
+	for _, team := range teams {
+		cal, err := teamcal.For(s.cals, team)
+		if err != nil {
+			return report, err
+		}
+		calendars[team.Id] = cal
+	}
+
 	now := s.now()
 
 	for _, board := range boards {
 		report.BoardsScanned++
 
+		cal, ok := calendars[board.GetString(schema.FieldTeam)]
+		if !ok {
+			return report, fmt.Errorf("board %q: team %q not found", board.Id, board.GetString(schema.FieldTeam))
+		}
+
 		for _, cadence := range domain.Cadences() {
-			periods, err := s.cal.ClosedBefore(cadence, now, lookback)
+			periods, err := cal.ClosedBefore(cadence, now, lookback)
 			if err != nil {
 				return report, fmt.Errorf("board %q, cadence %s: %w", board.Id, cadence, err)
 			}

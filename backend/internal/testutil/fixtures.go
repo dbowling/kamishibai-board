@@ -62,6 +62,23 @@ func NewTeam(t testing.TB, app core.App, name string, members ...*core.Record) *
 	return rec
 }
 
+// NewTeamInZone creates an active team whose operational timezone is zone, an
+// IANA name. Pass "" for a team that inherits the instance default.
+//
+// Saved through app.Save like the other builders, so the request hook that
+// validates zones is not involved: tests that want to exercise it go through the
+// HTTP client instead.
+func NewTeamInZone(t testing.TB, app core.App, name, zone string, members ...*core.Record) *core.Record {
+	t.Helper()
+
+	team := NewTeam(t, app, name, members...)
+	team.Set(schema.FieldTimezone, zone)
+	if err := app.Save(team); err != nil {
+		t.Fatalf("set timezone %q on team %q: %v", zone, name, err)
+	}
+	return team
+}
+
 // NewBoard creates an active board belonging to team.
 func NewBoard(t testing.TB, app core.App, team *core.Record, name string) *core.Record {
 	t.Helper()
