@@ -53,6 +53,37 @@ export const Default: Story = {
   },
 };
 
+export const FilterCards: Story = {
+  play: async ({ canvas, userEvent }) => {
+    await canvas.findByRole('heading', { name: 'Platform triage' });
+    const filter = canvas.getByLabelText('Filter');
+
+    // A partial, lowercase title match keeps only the matching card.
+    await userEvent.type(filter, 'backup');
+    await expect(await canvas.findByRole('article', { name: 'Verify backups' })).toBeInTheDocument();
+    await expect(canvas.queryByRole('article', { name: 'Rotate on-call' })).not.toBeInTheDocument();
+
+    // Summaries are searched too: "pager" appears only in Rotate on-call's summary.
+    await userEvent.clear(filter);
+    await userEvent.type(filter, 'pager');
+    await expect(await canvas.findByRole('article', { name: 'Rotate on-call' })).toBeInTheDocument();
+    await expect(canvas.queryByRole('article', { name: 'Verify backups' })).not.toBeInTheDocument();
+
+    // Escape clears the field and brings every card back.
+    await userEvent.keyboard('{Escape}');
+    await expect(filter).toHaveValue('');
+    await expect(await canvas.findByRole('article', { name: 'Verify backups' })).toBeInTheDocument();
+
+    // Nothing matching offers a way back.
+    await userEvent.type(filter, 'zzz');
+    await expect(await canvas.findByText('No cards match “zzz”.')).toBeInTheDocument();
+    await userEvent.click(canvas.getByRole('button', { name: 'Clear filters' }));
+    await expect(filter).toHaveValue('');
+    await expect(await canvas.findByRole('article', { name: 'Verify backups' })).toBeInTheDocument();
+    await expect(canvas.getByRole('article', { name: 'Rotate on-call' })).toBeInTheDocument();
+  },
+};
+
 export const CreateCard: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(await canvas.findByRole('button', { name: 'New card' }));

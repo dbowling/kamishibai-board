@@ -525,6 +525,10 @@ code {
   flex-wrap: wrap;
 }
 
+.board__filters input[type='search'] {
+  width: min(16rem, 100%);
+}
+
 .board__toolbar-actions {
   display: flex;
   gap: 0.5rem;
